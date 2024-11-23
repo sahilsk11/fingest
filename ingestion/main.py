@@ -22,7 +22,7 @@ sf = sf_import.SnowflakeImportEngine(
 
 # Read CSV, stopping at the first empty line
 rows = []
-with open("amex.csv", 'r') as f:
+with open("sample_data/amex.csv", 'r') as f:
     reader = csv.reader(f)
     for row in reader:
         if any(cell.strip() for cell in row):
@@ -33,7 +33,7 @@ with open("amex.csv", 'r') as f:
 # Convert to DataFrame and remove any remaining empty rows
 csv_as_df = pd.DataFrame(rows[1:], columns=rows[0]).dropna(how='all').reset_index(drop=True)
 
-sf.import_csv(csv_as_df, uuid.uuid4(), "AMEX")
+sf.import_csv(csv_as_df, "AMEX")
 
 # # sf.import_csv("test.csv")
 # sf.close()

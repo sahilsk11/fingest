@@ -6,10 +6,13 @@ from snowflake.connector.pandas_tools import write_pandas
 from baml_client import b
 import re
 
-from baml_client.types import AccountType
+from baml_client.types import AccountType, DataType
+
 
 class SnowflakeImportEngine:
-    def __init__(self, user: str, password: str, account: str, database: str, schema: str):
+    def __init__(
+        self, user: str, password: str, account: str, database: str, schema: str
+    ):
         self.conn = snowflake.connector.connect(
             user=user,
             password=password,
@@ -21,16 +24,49 @@ class SnowflakeImportEngine:
     def close(self):
         self.conn.close()
 
-    def create_import_run(self, category: str, origin: str, error_message: str) -> uuid.UUID:
+    def create_import_run(
+        self,
+        source_institution: str,
+        account_type: AccountType,
+        data_type: DataType,
+        file_source_format: str,
+        table_name: str,
+        s3_bucket: Optional[str] = None,
+        s3_path: Optional[str] = None,
+        file_name: Optional[str] = None,
+    ) -> uuid.UUID:
         cursor = self.conn.cursor()
         import_id = uuid.uuid4()
         cursor.execute(
-            "INSERT INTO import_run (import_run_id, category, created_at, error_message, origin) VALUES (%s, %s, current_timestamp(), %s, %s)",
-            (str(import_id), category, error_message, origin),
+            """INSERT INTO import_run (
+                import_run_id, 
+                source_institution,
+                account_type, 
+                data_type, 
+                file_source_format,
+                table_name,
+                s3_bucket,
+                s3_path,
+                file_name,
+                created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, current_timestamp())""",
+            (
+                str(import_id),
+                source_institution,
+                account_type.value,
+                data_type.value,
+                file_source_format,
+                table_name,
+                s3_bucket,
+                s3_path,
+                file_name
+            ),
         )
         return import_id
-    
-    def _csv_format_matches_existing_table(self, headers: List[str], existing_import_table_names: List[str]) -> Optional[str]:
+
+    def _csv_format_matches_existing_table(
+        self, headers: List[str], existing_import_table_names: List[str]
+    ) -> Optional[str]:
         cursor = self.conn.cursor()
         # For each table, check if columns match
         for table_name in existing_import_table_names:
@@ -50,28 +86,47 @@ class SnowflakeImportEngine:
         cursor.close()
         return None
 
-    def import_csv(self, csv_as_df: pd.DataFrame, import_run_id: uuid.UUID, source_institution: str) -> bool:
+    def import_csv(
+        self,
+        csv_as_df: pd.DataFrame,
+        source_institution: str
+    ) -> bool:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
         headers = [
-            re.sub(r"[^a-zA-Z0-9_]", "_", col).upper()
-            for col in csv_as_df.columns
+            re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
         ]
         csv_as_df.columns = headers
 
         cursor = self.conn.cursor()
-        cursor.execute((
-            "select * from import_table_registry" + 
-            f" where source_institution = '{source_institution}'" + 
-            f" and file_source_format = 'CSV'"
-        ))
+        cursor.execute(
+            (
+                "select * from import_table_registry"
+                + f" where source_institution = '{source_institution}'"
+                + f" and file_source_format = 'CSV'"
+            )
+        )
         import_tables: List[Tuple] = cursor.fetchall()
         import_table_names = [t[1] for t in import_tables]
 
+        matching_table = self._csv_format_matches_existing_table(
+            headers, import_table_names
+        ) or self.create_import_table_from_csv(
+            csv_as_df, import_table_names, source_institution
+        )
 
-        matching_table = (
-            self._csv_format_matches_existing_table(headers, import_table_names)
-            or
-            self.create_import_table_from_csv(csv_as_df, import_table_names, source_institution)
+        cursor.execute(
+            f"SELECT account_type, data_type FROM import_table_registry WHERE table_name = '{matching_table}'"
+        )
+        table_attributes = cursor.fetchone()
+        if not table_attributes:
+            raise ValueError(f"No attributes found for table {matching_table}")
+
+        import_run_id = self.create_import_run(
+            source_institution,
+            AccountType(table_attributes[0]),
+            DataType(table_attributes[1]),
+            "CSV",
+            matching_table,
         )
 
         row_ids = [str(uuid.uuid4()) for _ in range(len(csv_as_df))]
@@ -88,23 +143,29 @@ class SnowflakeImportEngine:
         cursor.close()
         return success
 
-    def create_import_table_from_csv(self, csv_as_df: pd.DataFrame, import_table_names: list[str], source_institution: str) -> str:
+    def create_import_table_from_csv(
+        self,
+        csv_as_df: pd.DataFrame,
+        import_table_names: list[str],
+        source_institution: str,
+    ) -> str:
         # assumes table with existing format
         # does not exist
         headers: List[str] = list(csv_as_df.columns)
         rows = [list(row) for row in csv_as_df.head(2).to_numpy()]
         if len(rows) == 0:
             raise ValueError("No data found in CSV file")
-        
 
         categories = b.CategorizeCsvData(source_institution, headers, rows)
         account_type = categories.account_type
         data_type = categories.data_type
 
         # Create unique table name from source and category
-        table_name = f"{source_institution}_{account_type.value}_{data_type.value}".upper()
+        table_name = (
+            f"{source_institution}_{account_type.value}_{data_type.value}".upper()
+        )
         counter = 1
-        
+
         # Ensure unique table name
         while table_name in import_table_names:
             table_name = f"{table_name}_{counter}"
@@ -112,13 +173,13 @@ class SnowflakeImportEngine:
 
         # Build CREATE TABLE statement
         create_stmt = (
-            f"CREATE TABLE FINGEST.PUBLIC.{table_name} (\n" +
-            f"{table_name}_ID VARCHAR(36) not null,\n"
+            f"CREATE TABLE FINGEST.PUBLIC.{table_name} (\n"
+            + f"{table_name}_ID VARCHAR(36) not null,\n"
             "IMPORT_RUN_ID VARCHAR(36) not null,\n"
         )
-        
+
         # Add columns based on headers
-        for header in headers:            
+        for header in headers:
             # Check if all values in column are numeric
             is_numeric = True
             for val in csv_as_df[header].dropna():
@@ -127,11 +188,11 @@ class SnowflakeImportEngine:
                 except (ValueError, TypeError):
                     is_numeric = False
                     break
-                    
+
             # Use NUMERIC type if all values are numeric, otherwise VARCHAR
             col_type = "NUMERIC" if is_numeric else "VARCHAR(255)"
             create_stmt += f"    {header} {col_type},\n"
-        
+
         # Remove trailing comma and close statement
         create_stmt = create_stmt.rstrip(",\n") + "\n)"
 
@@ -141,9 +202,9 @@ class SnowflakeImportEngine:
         cursor = self.conn.cursor()
         try:
             cursor.execute("BEGIN")
-            
+
             cursor.execute(create_stmt)
-            
+
             # Register the new table
             registry_id = str(uuid.uuid4())
             cursor.execute(
@@ -152,15 +213,20 @@ class SnowflakeImportEngine:
                 (import_table_registry_id, table_name, source_institution, account_type, data_type, file_source_format)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (registry_id, table_name, source_institution, account_type.value.upper(), data_type.value.upper(), 'CSV')
+                (
+                    registry_id,
+                    table_name,
+                    source_institution,
+                    account_type.value.upper(),
+                    data_type.value.upper(),
+                    "CSV",
+                ),
             )
             cursor.execute("COMMIT")
             cursor.close()
             return table_name
-            
+
         except Exception as e:
             cursor.execute("ROLLBACK")
             cursor.close()
             raise e
-
-       
