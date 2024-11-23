@@ -1,11 +1,12 @@
 import pandas as pd
+from baml_client.globals import reset_baml_env_vars
 import sf_import
 import passwords
 from dotenv import load_dotenv
 import os
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
-print(api_key)
+
+reset_baml_env_vars(dict(os.environ))
 
 sf = sf_import.SnowflakeImportEngine(
     user=passwords.get_snowflake_user(),

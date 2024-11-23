@@ -24,6 +24,5 @@ create table import_table_registry (
   source_institution VARCHAR(20), -- robinhood, schwab, etc
   category VARCHAR(40) not null,
   
-  primary key (import_table_registry_id),
-  unique (table_name)
+  primary key (import_table_registry_id)
 );

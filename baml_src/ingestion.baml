@@ -9,7 +9,7 @@ enum AccountType {
   Other
 }
 
-function CategorizeData(headers: string[], rows: string[][]) -> AccountType {
+function CategorizeData(headers: string[], rows: string | float[][]) -> AccountType {
   client Main
 
   prompt #"

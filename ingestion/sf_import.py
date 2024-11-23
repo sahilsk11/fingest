@@ -6,6 +6,8 @@ from snowflake.connector.pandas_tools import write_pandas
 from baml_client import b
 import re
 
+from baml_client.types import AccountType
+
 class SnowflakeImportEngine:
     def __init__(self, user: str, password: str, account: str, database: str, schema: str):
         self.conn = snowflake.connector.connect(
@@ -88,7 +90,7 @@ class SnowflakeImportEngine:
         if len(rows) == 0:
             raise ValueError("No data found in CSV file")
 
-        category = b.CategorizeData(headers, rows)
+        category = AccountType.Other # b.CategorizeData(headers, rows)
 
         # Create unique table name from source and category
         base_name = f"{source_institution}_{category.value}".upper()
@@ -101,7 +103,11 @@ class SnowflakeImportEngine:
             counter += 1
 
         # Build CREATE TABLE statement
-        create_stmt = f"CREATE TABLE FINGEST.PUBLIC.{table_name} (\n"
+        create_stmt = (
+            f"CREATE TABLE FINGEST.PUBLIC.{table_name} (\n" +
+            f"{table_name.lower()}_id VARCHAR(36) not null,\n"
+            "import_run_id VARCHAR(36) not null,\n"
+        )
         
         # Add columns based on headers
         for header in headers:
@@ -126,22 +132,30 @@ class SnowflakeImportEngine:
 
         print(create_stmt)
 
-        # Execute create table
+        # Execute create table within transaction
         cursor = self.conn.cursor()
-        cursor.execute(create_stmt)
-        
-        # Register the new table
-        registry_id = str(uuid.uuid4())
-        cursor.execute(
-            """
-            INSERT INTO import_table_registry 
-            (import_table_registry_id, table_name, source_institution, category)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (registry_id, table_name, source_institution, category.value)
-        )
-        cursor.close()
-
-        return table_name
+        try:
+            cursor.execute("BEGIN")
+            
+            cursor.execute(create_stmt)
+            
+            # Register the new table
+            registry_id = str(uuid.uuid4())
+            cursor.execute(
+                """
+                INSERT INTO import_table_registry 
+                (import_table_registry_id, table_name, source_institution, category)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (registry_id, table_name, source_institution, category.value)
+            )
+            cursor.execute("COMMIT")
+            cursor.close()
+            return table_name
+            
+        except Exception as e:
+            cursor.execute("ROLLBACK")
+            cursor.close()
+            raise e
 
        
