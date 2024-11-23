@@ -1,4 +1,5 @@
 from typing import Tuple, List, Optional
+import uuid
 import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
@@ -17,6 +18,15 @@ class SnowflakeImportEngine:
 
     def close(self):
         self.conn.close()
+
+    def create_import_run(self, category: str, origin: str, error_message: str) -> uuid.UUID:
+        cursor = self.conn.cursor()
+        import_id = uuid.uuid4()
+        cursor.execute(
+            "INSERT INTO import_run (import_run_id, category, created_at, error_message, origin) VALUES (%s, %s, current_timestamp(), %s, %s)",
+            (str(import_id), category, error_message, origin),
+        )
+        return import_id
 
     def import_csv(self, file_path: str) -> bool:
         """

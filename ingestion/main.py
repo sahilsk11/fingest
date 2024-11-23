@@ -1,12 +1,16 @@
 import sf_import
-import passwords
+import ingestion.passwords as passwords
 
 
 sf = sf_import.SnowflakeImportEngine(
-    passwords.get_snowflake_user(),
-    passwords.get_snowflake_password(),
-    passwords.get_snowflake_account()
+    user=passwords.get_snowflake_user(),
+    password=passwords.get_snowflake_password(),
+    account=passwords.get_snowflake_account(),
+    schema=passwords.get_snowflake_schema(),
+    database=passwords.get_snowflake_database()
 )
 
-sf.import_csv("test.csv")
+print(sf.create_import_run("test", "test", "test"))
+
+# sf.import_csv("test.csv")
 sf.close()
