@@ -1,2 +1,0 @@
-import snowflake.connector
-

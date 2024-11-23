@@ -2,14 +2,11 @@ import sf_import
 import passwords
 
 
-conn = sf_import.get_connection(
-    user=passwords.get_user(),
-    password=passwords.get_password(), 
-    account=passwords.get_account(),
-    database=passwords.get_database(),
-    schema=passwords.get_schema()
-    # we've configured user to have
-    # default warehouse and role
+sf = sf_import.SnowflakeImportEngine(
+    passwords.get_snowflake_user(),
+    passwords.get_snowflake_password(),
+    passwords.get_snowflake_account()
 )
 
-sf_import.import_csv("test.csv", conn)
+sf.import_csv("test.csv")
+sf.close()
