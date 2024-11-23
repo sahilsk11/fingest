@@ -39,7 +39,8 @@ class SnowflakeImportEngine:
                 table_columns: List[str] = {col[0].lower() for col in cursor.fetchall()}
 
                 # the CSV headers should be a subset of the table columns
-                if {h.lower() for h in headers}.issubset(table_columns):
+                csv_headers = {h.lower() for h in headers}
+                if csv_headers.issubset(table_columns):
                     cursor.close()
                     return table_name
 
@@ -49,35 +50,40 @@ class SnowflakeImportEngine:
         cursor.close()
         return None
 
-    def import_csv(self, csv_as_df: pd.DataFrame, import_run_id: uuid.UUID) -> bool:
-        headers: List[str] = list(csv_as_df.columns)
+    def import_csv(self, csv_as_df: pd.DataFrame, import_run_id: uuid.UUID, source_institution: str) -> bool:
+        # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
+        headers = [
+            re.sub(r"[^a-zA-Z0-9_]", "_", col).upper()
+            for col in csv_as_df.columns
+        ]
+        csv_as_df.columns = headers
 
         cursor = self.conn.cursor()
-        cursor.execute("select * from import_table_registry")
+        cursor.execute((
+            "select * from import_table_registry" + 
+            f" where source_institution = '{source_institution}'" + 
+            f" and file_source_format = 'CSV'"
+        ))
         import_tables: List[Tuple] = cursor.fetchall()
         import_table_names = [t[1] for t in import_tables]
 
-        matching_table = self._csv_format_matches_existing_table(headers, import_table_names)
 
-        if matching_table:
-            # If matching table found, insert data
-            success, _, nrows, _ = write_pandas(
-                self.conn, csv_as_df, matching_table, auto_create_table=False
-            )
-            print(f"Inserted {nrows} rows into existing table {matching_table}")
-        # else:
-        #     # Create new table with sanitized name based on file name
-        #     import os
-        #     import re
+        matching_table = (
+            self._csv_format_matches_existing_table(headers, import_table_names)
+            or
+            self.create_import_table_from_csv(csv_as_df, import_table_names, source_institution)
+        )
 
-        #     base_name: str = os.path.splitext(os.path.basename(file_path))[0]
-        #     # Sanitize name to valid SQL table name
-        #     new_table: str = re.sub(r"[^a-zA-Z0-9_]", "_", base_name).upper()
+        row_ids = [str(uuid.uuid4()) for _ in range(len(csv_as_df))]
+        import_run_ids = [str(import_run_id)] * len(csv_as_df)
+        csv_as_df.insert(0, f"{matching_table}_ID", row_ids)
+        csv_as_df.insert(1, "IMPORT_RUN_ID", import_run_ids)
+        csv_as_df.columns = csv_as_df.columns.str.upper()
 
-        #     success, nchunks, nrows, _ = write_pandas(
-        #         self.conn, csv_as_df, new_table, auto_create_table=True
-        #     )
-        #     print(f"Created new table {new_table} and inserted {nrows} rows")
+        success, _, nrows, _ = write_pandas(
+            self.conn, csv_as_df, matching_table, auto_create_table=False
+        )
+        print(f"Inserted {nrows} rows into existing table {matching_table}")
 
         cursor.close()
         return success
@@ -89,31 +95,30 @@ class SnowflakeImportEngine:
         rows = [list(row) for row in csv_as_df.head(2).to_numpy()]
         if len(rows) == 0:
             raise ValueError("No data found in CSV file")
+        
 
-        category = AccountType.Other # b.CategorizeData(headers, rows)
+        categories = b.CategorizeCsvData(source_institution, headers, rows)
+        account_type = categories.account_type
+        data_type = categories.data_type
 
         # Create unique table name from source and category
-        base_name = f"{source_institution}_{category.value}".upper()
-        table_name = base_name
+        table_name = f"{source_institution}_{account_type.value}_{data_type.value}".upper()
         counter = 1
         
         # Ensure unique table name
         while table_name in import_table_names:
-            table_name = f"{base_name}_{counter}"
+            table_name = f"{table_name}_{counter}"
             counter += 1
 
         # Build CREATE TABLE statement
         create_stmt = (
             f"CREATE TABLE FINGEST.PUBLIC.{table_name} (\n" +
-            f"{table_name.lower()}_id VARCHAR(36) not null,\n"
-            "import_run_id VARCHAR(36) not null,\n"
+            f"{table_name}_ID VARCHAR(36) not null,\n"
+            "IMPORT_RUN_ID VARCHAR(36) not null,\n"
         )
         
         # Add columns based on headers
-        for header in headers:
-            # Sanitize column name
-            col_name = re.sub(r"[^a-zA-Z0-9_]", "_", header).upper()
-            
+        for header in headers:            
             # Check if all values in column are numeric
             is_numeric = True
             for val in csv_as_df[header].dropna():
@@ -125,7 +130,7 @@ class SnowflakeImportEngine:
                     
             # Use NUMERIC type if all values are numeric, otherwise VARCHAR
             col_type = "NUMERIC" if is_numeric else "VARCHAR(255)"
-            create_stmt += f"    {col_name} {col_type},\n"
+            create_stmt += f"    {header} {col_type},\n"
         
         # Remove trailing comma and close statement
         create_stmt = create_stmt.rstrip(",\n") + "\n)"
@@ -144,10 +149,10 @@ class SnowflakeImportEngine:
             cursor.execute(
                 """
                 INSERT INTO import_table_registry 
-                (import_table_registry_id, table_name, source_institution, category)
-                VALUES (%s, %s, %s, %s)
+                (import_table_registry_id, table_name, source_institution, account_type, data_type, file_source_format)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (registry_id, table_name, source_institution, category.value)
+                (registry_id, table_name, source_institution, account_type.value.upper(), data_type.value.upper(), 'CSV')
             )
             cursor.execute("COMMIT")
             cursor.close()

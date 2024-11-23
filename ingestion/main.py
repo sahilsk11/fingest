@@ -1,9 +1,11 @@
+import uuid
 import pandas as pd
 from baml_client.globals import reset_baml_env_vars
 import sf_import
 import passwords
 from dotenv import load_dotenv
 import os
+import csv
 load_dotenv()
 
 reset_baml_env_vars(dict(os.environ))
@@ -18,12 +20,20 @@ sf = sf_import.SnowflakeImportEngine(
 
 # print(sf.create_import_run("test", "test", "test"))
 
-csv_as_df = pd.read_csv("test.csv")
-sf.create_import_table_from_csv(
-    csv_as_df,
-    [""],
-    "robinhood"
-)
+# Read CSV, stopping at the first empty line
+rows = []
+with open("amex.csv", 'r') as f:
+    reader = csv.reader(f)
+    for row in reader:
+        if any(cell.strip() for cell in row):
+            rows.append(row)
+        else:
+            break
 
-# sf.import_csv("test.csv")
-sf.close()
+# Convert to DataFrame and remove any remaining empty rows
+csv_as_df = pd.DataFrame(rows[1:], columns=rows[0]).dropna(how='all').reset_index(drop=True)
+
+sf.import_csv(csv_as_df, uuid.uuid4(), "AMEX")
+
+# # sf.import_csv("test.csv")
+# sf.close()

@@ -3,3 +3,4 @@ passwords.py
 __pycache__
 baml_client
 .env
+sample_data

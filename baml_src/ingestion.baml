@@ -1,19 +1,38 @@
 // baml functions for ingesting data
 
-
 enum AccountType {
-  Bank
-  Brokerage
-  CreditCard
-  CryptoExchange
-  Other
+  BANK
+  BROKERAGE @description(#"
+    account related to trading securities (i.e. stocks, bonds, etc). buying, selling
+    or holding tickers or CUSIPs is indicative of a brokerage account.
+  "#)
+  CREDIT_CARD
+  CRYPTO_EXCHANGE
+  OTHER
 }
 
-function CategorizeData(headers: string[], rows: string | float[][]) -> AccountType {
+enum DataType {
+  TRANSACTION
+  POSITION
+  OPENLOT
+  BALANCES
+}
+
+class CategorizeCsvDataResult {
+  account_type AccountType
+  data_type DataType
+}
+
+function CategorizeCsvData(source_institution: string | null,headers: string[], rows: string[][] | float[][]) -> CategorizeCsvDataResult {
   client Main
 
   prompt #"
-    Here's the header of a CSV file and one or two rows of data. Use the provided output to figure out the type of account.
+    Here's the header of a CSV file and one or two rows of data. Use the
+    provided headers and rows to figure out the type of account that this
+    data could have come from.
+
+    source institution:
+    {{ source_institution }}
 
     headers:
     {{ headers }}
@@ -27,15 +46,14 @@ function CategorizeData(headers: string[], rows: string | float[][]) -> AccountT
 }
 
 test TestName {
-  functions [CategorizeData]
+  functions [CategorizeCsvData]
   args {
-    headers [
-      #"
-        hello world
-      "#,
-      #"
-        hello world
-      "#
+    source_institution "Robinhood"
+    headers ["price", "activity_date", "description", "instrument", "settle_date", "amount", "quantity", "process_date", "trans_code"]
+    rows [
+      [
+        "5/31/2024","5/31/2024","5/31/2024","","Interest Payment","INT","","","$0.02"
+      ]
     ]
   }
 }
