@@ -67,7 +67,6 @@ func (h *snowflakeRepositoryHandler) GetImportRun(importRunId uuid.UUID) (*domai
 		FROM fingest.public.import_run
 		WHERE import_run_id = ?`
 
-	fmt.Println(query)
 	row := h.db.QueryRow(query, importRunId.String())
 
 	importRun := &domain.ImportRun{}

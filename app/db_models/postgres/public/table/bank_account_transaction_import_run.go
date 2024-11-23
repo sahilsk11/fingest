@@ -20,7 +20,6 @@ type bankAccountTransactionImportRunTable struct {
 	BankAccountImportRunID postgres.ColumnString
 	BankAccountID          postgres.ColumnString
 	ImportRunID            postgres.ColumnString
-	Status                 postgres.ColumnString
 	CreatedAt              postgres.ColumnTimestamp
 
 	AllColumns     postgres.ColumnList
@@ -55,10 +54,9 @@ func newBankAccountTransactionImportRunTableImpl(schemaName, tableName, alias st
 		BankAccountImportRunIDColumn = postgres.StringColumn("bank_account_import_run_id")
 		BankAccountIDColumn          = postgres.StringColumn("bank_account_id")
 		ImportRunIDColumn            = postgres.StringColumn("import_run_id")
-		StatusColumn                 = postgres.StringColumn("status")
 		CreatedAtColumn              = postgres.TimestampColumn("created_at")
-		allColumns                   = postgres.ColumnList{BankAccountImportRunIDColumn, BankAccountIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn}
-		mutableColumns               = postgres.ColumnList{BankAccountIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn}
+		allColumns                   = postgres.ColumnList{BankAccountImportRunIDColumn, BankAccountIDColumn, ImportRunIDColumn, CreatedAtColumn}
+		mutableColumns               = postgres.ColumnList{BankAccountIDColumn, ImportRunIDColumn, CreatedAtColumn}
 	)
 
 	return bankAccountTransactionImportRunTable{
@@ -68,7 +66,6 @@ func newBankAccountTransactionImportRunTableImpl(schemaName, tableName, alias st
 		BankAccountImportRunID: BankAccountImportRunIDColumn,
 		BankAccountID:          BankAccountIDColumn,
 		ImportRunID:            ImportRunIDColumn,
-		Status:                 StatusColumn,
 		CreatedAt:              CreatedAtColumn,
 
 		AllColumns:     allColumns,

@@ -12,9 +12,10 @@ import (
 	"time"
 )
 
-type BankAccountTransactionImportRun struct {
-	BankAccountImportRunID uuid.UUID `sql:"primary_key"`
-	BankAccountID          uuid.UUID
-	ImportRunID            uuid.UUID
-	CreatedAt              time.Time
+type ImportRunState struct {
+	ImportRunStatusID uuid.UUID `sql:"primary_key"`
+	ImportRunID       uuid.UUID
+	Status            *ImportRunStatus
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }

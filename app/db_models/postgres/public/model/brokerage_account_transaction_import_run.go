@@ -16,6 +16,5 @@ type BrokerageAccountTransactionImportRun struct {
 	BrokerageAccountImportRunID uuid.UUID `sql:"primary_key"`
 	BrokerageAccountID          uuid.UUID
 	ImportRunID                 uuid.UUID
-	Status                      ImportRunStatus
 	CreatedAt                   time.Time
 }

@@ -20,7 +20,6 @@ type brokerageAccountTransactionImportRunTable struct {
 	BrokerageAccountImportRunID postgres.ColumnString
 	BrokerageAccountID          postgres.ColumnString
 	ImportRunID                 postgres.ColumnString
-	Status                      postgres.ColumnString
 	CreatedAt                   postgres.ColumnTimestampz
 
 	AllColumns     postgres.ColumnList
@@ -55,10 +54,9 @@ func newBrokerageAccountTransactionImportRunTableImpl(schemaName, tableName, ali
 		BrokerageAccountImportRunIDColumn = postgres.StringColumn("brokerage_account_import_run_id")
 		BrokerageAccountIDColumn          = postgres.StringColumn("brokerage_account_id")
 		ImportRunIDColumn                 = postgres.StringColumn("import_run_id")
-		StatusColumn                      = postgres.StringColumn("status")
 		CreatedAtColumn                   = postgres.TimestampzColumn("created_at")
-		allColumns                        = postgres.ColumnList{BrokerageAccountImportRunIDColumn, BrokerageAccountIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn}
-		mutableColumns                    = postgres.ColumnList{BrokerageAccountIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn}
+		allColumns                        = postgres.ColumnList{BrokerageAccountImportRunIDColumn, BrokerageAccountIDColumn, ImportRunIDColumn, CreatedAtColumn}
+		mutableColumns                    = postgres.ColumnList{BrokerageAccountIDColumn, ImportRunIDColumn, CreatedAtColumn}
 	)
 
 	return brokerageAccountTransactionImportRunTable{
@@ -68,7 +66,6 @@ func newBrokerageAccountTransactionImportRunTableImpl(schemaName, tableName, ali
 		BrokerageAccountImportRunID: BrokerageAccountImportRunIDColumn,
 		BrokerageAccountID:          BrokerageAccountIDColumn,
 		ImportRunID:                 ImportRunIDColumn,
-		Status:                      StatusColumn,
 		CreatedAt:                   CreatedAtColumn,
 
 		AllColumns:     allColumns,
