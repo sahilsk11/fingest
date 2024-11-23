@@ -1,6 +1,11 @@
+import pandas as pd
 import sf_import
-import ingestion.passwords as passwords
-
+import passwords
+from dotenv import load_dotenv
+import os
+load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
+print(api_key)
 
 sf = sf_import.SnowflakeImportEngine(
     user=passwords.get_snowflake_user(),
@@ -10,7 +15,14 @@ sf = sf_import.SnowflakeImportEngine(
     database=passwords.get_snowflake_database()
 )
 
-print(sf.create_import_run("test", "test", "test"))
+# print(sf.create_import_run("test", "test", "test"))
+
+csv_as_df = pd.read_csv("test.csv")
+sf.create_import_table_from_csv(
+    csv_as_df,
+    [""],
+    "robinhood"
+)
 
 # sf.import_csv("test.csv")
 sf.close()
