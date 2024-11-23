@@ -1,3 +1,5 @@
 env
 passwords.py
 __pycache__
+baml_client
+.env
