@@ -15,7 +15,7 @@ import (
 type ImportRunState struct {
 	ImportRunStatusID uuid.UUID `sql:"primary_key"`
 	ImportRunID       uuid.UUID
-	Status            *ImportRunStatus
+	Status            ImportRunStatus
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }

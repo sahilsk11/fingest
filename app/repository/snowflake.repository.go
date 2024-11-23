@@ -12,6 +12,7 @@ import (
 type SnowflakeRepository interface {
 	// initializeConnection() error
 	GetImportRun(importRunId uuid.UUID) (*domain.ImportRun, error)
+	GetTableData(tableName string) ([]string, [][]interface{}, error)
 }
 
 type snowflakeRepositoryHandler struct {
@@ -90,4 +91,49 @@ func (h *snowflakeRepositoryHandler) GetImportRun(importRunId uuid.UUID) (*domai
 	}
 
 	return importRun, nil
+}
+
+func (h *snowflakeRepositoryHandler) GetTableData(tableName string) ([]string, [][]interface{}, error) {
+	// Build and execute the query to fetch all data from the table
+	query := fmt.Sprintf("SELECT * FROM fingest.public.%s", tableName)
+	rows, err := h.db.Query(query)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to query table %s: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	// Get column names (headers)
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get column names: %w", err)
+	}
+
+	// Prepare a slice to hold data
+	var data [][]interface{}
+
+	// Iterate through the rows
+	for rows.Next() {
+		// Create a slice of `interface{}` to hold a single row's values
+		row := make([]interface{}, len(columns))
+		rowPtrs := make([]interface{}, len(columns))
+		for i := range row {
+			rowPtrs[i] = &row[i]
+		}
+
+		// Scan the row into the pointers
+		err := rows.Scan(rowPtrs...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Append the row to the data
+		data = append(data, row)
+	}
+
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("error during rows iteration: %w", err)
+	}
+
+	return columns, data, nil
 }

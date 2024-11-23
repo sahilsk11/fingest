@@ -38,11 +38,11 @@ const (
 
 type ImportRun struct {
 	ImportRunID       uuid.UUID
-	SourceInstitution *string
-	AccountType       *AccountType
-	DataType          *DataType
-	FileSourceFormat  *FileSourceFormat
-	TableName         *string
+	SourceInstitution string
+	AccountType       AccountType
+	DataType          DataType
+	FileSourceFormat  FileSourceFormat
+	TableName         string
 	S3Bucket          *string
 	S3Path            *string
 	FileName          *string

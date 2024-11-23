@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/go-jet/jet/v2 v2.12.0
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	github.com/snowflakedb/gosnowflake v1.12.0
 )
 

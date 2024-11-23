@@ -5,3 +5,4 @@ __pycache__
 baml_client
 .env
 sample_data
+secrets.json
