@@ -6,8 +6,8 @@ function GeneratePipeline(
     pg_table_name: string,
     pg_table_attrs_json: string,
     sample_data_json: string,
-    existing_pipeline: string | null,
-    existing_feedback_or_error: string | null,
+    // existing_pipeline: string | null,
+    // existing_feedback_or_error: string | null,
 ) -> string {
     client Main
 
@@ -26,6 +26,8 @@ function GeneratePipeline(
 
         The dataframe should be in the format of the Postgres table, and the
         function should be able to handle missing values and nulls.
+        
+       
 
         Be careful with date formats - the inputs may have super wonky date formats. Ensure that we're able to parse them into a datetime object within the output dataframe. I've included the datetime library in scope (import datetime); feel free to import other libraries you may need if you think it's necessary.
 
@@ -33,7 +35,7 @@ function GeneratePipeline(
         You can use the following functions to help you:
 
         - df.dropna(how='all') to drop rows with missing values
-        - df.fillna(value) to fill missing values with a specific value
+        - df.fillna(value) to fill missing values with a specific value. please check that the column exists before attempting to fill it.
         - df.isnull() to check for null values
         - df.dropna(how='all').dropna(how='all') to drop rows with null values
         - df.apply(lambda x: x.astype(float)) to convert all values to float
@@ -47,24 +49,27 @@ function GeneratePipeline(
 
         assume that the variable inserted_data: pd.DataFrame is already defined and in scope. the outputted code should simply create a new variable called transformed_data and assign the output of the transformations to it.
 
-        I'm going to take the exact output you generate and put it into an exec() function call, so use semicolons to separate each line of code.
+        I'm going to take the exact output you generate and put it into an exec() function call, so use semicolons to separate each line of code. do not put newlines in the output to seperate the lines.
 
         Don't include any other code or explanations in the function. Do not attempt to format or apply markdown - it's going straight into the exec() function.
 
-        here's what you generated last time (may be empty):
+        Your output should begin with: transformed_data = ...
 
-        {{ existing_pipeline }}
-
-        here's the error message from that result (may be empty):
-
-        {{ existing_feedback_or_error }}
-
-        You may use that to adjust your code.
 
         {{ ctx.output_format }}
     "#
 
 }
+
+// here's what you generated last time (may be empty):
+
+        // {{ existing_pipeline }}
+
+        // here's the error message from that result (may be empty):
+
+        // {{ existing_feedback_or_error }}
+
+        // You may use that to adjust your code.
 
 test TestPipeline {
   functions [GeneratePipeline]

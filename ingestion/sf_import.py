@@ -11,6 +11,7 @@ from baml_client.types import AccountType, DataType
 
 from typing import TypedDict, Optional
 
+
 class ImportTableRegistry(TypedDict, total=False):
     import_table_registry_id: uuid.UUID
     table_name: str
@@ -20,6 +21,13 @@ class ImportTableRegistry(TypedDict, total=False):
     file_source_format: str
     versioned_normalization_pipeline_id: Optional[uuid.UUID]
 
+
+class NormalizationPipeline(TypedDict):
+    normalization_pipeline_id: uuid.UUID
+    python_code: str
+    feedback_or_error: Optional[str]
+    previous_version_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
 
 
 class SnowflakeWrapper:
@@ -103,8 +111,10 @@ class SnowflakeWrapper:
         out = {col[0] for col in cursor.fetchall()}
         cursor.close()
         return out
-    
-    def get_inserted_data(self, table_name: str, import_run_id: uuid.UUID) -> Optional[pd.DataFrame]:
+
+    def get_inserted_data(
+        self, table_name: str, import_run_id: uuid.UUID
+    ) -> Optional[pd.DataFrame]:
         cursor = self.conn.cursor()
         cursor.execute(
             f"SELECT * FROM FINGEST.PUBLIC.{table_name} WHERE import_run_id = '{import_run_id}'"
@@ -116,8 +126,10 @@ class SnowflakeWrapper:
         columns = [desc[0] for desc in cursor.description]
         df = pd.DataFrame(result, columns=columns)
         return df
-    
-    def get_import_table_names(self, source_institution: str, file_source_format: str) -> List[str]:
+
+    def get_import_table_names(
+        self, source_institution: str, file_source_format: str
+    ) -> List[str]:
         cursor = self.conn.cursor()
         cursor.execute(
             (
@@ -126,14 +138,18 @@ class SnowflakeWrapper:
                 + f" and file_source_format = '{file_source_format}'"
             )
         )
-        
+
         import_tables = cursor.fetchall()
         cursor.close()
         if not import_tables:
-            raise ValueError(f"No import tables found for source institution {source_institution} and file source format {file_source_format}")
+            raise ValueError(
+                f"No import tables found for source institution {source_institution} and file source format {file_source_format}"
+            )
         return [t[0] for t in import_tables]
-    
-    def get_import_table_attributes(self, table_name: str) -> Optional[ImportTableRegistry]:
+
+    def get_import_table_attributes(
+        self, table_name: str
+    ) -> Optional[ImportTableRegistry]:
         cursor = self.conn.cursor()
         cursor.execute(
             f"""SELECT
@@ -155,19 +171,45 @@ class SnowflakeWrapper:
             "file_source_format": table_attributes[2],
             "versioned_normalization_pipeline_id": table_attributes[3],
         }
-    def get_normalization_pipeline(self, versioned_normalization_pipeline_id: uuid.UUID) -> Optional[Tuple[str, str]]:
+
+    def get_normalization_pipeline(
+        self, versioned_normalization_pipeline_id: uuid.UUID
+    ) -> Optional[NormalizationPipeline]:
         cursor = self.conn.cursor()
         cursor.execute(
-            f"SELECT python_code, feedback_or_error FROM versioned_normalization_pipeline WHERE versioned_normalization_pipeline_id = '{versioned_normalization_pipeline_id}'"
+            f"""
+                SELECT 
+                    versioned_normalization_pipeline_id,
+                    python_code,
+                    feedback_or_error,
+                    previous_version_id,
+                    created_at
+                FROM 
+                    versioned_normalization_pipeline 
+                WHERE 
+                    versioned_normalization_pipeline_id = '{versioned_normalization_pipeline_id}'
+            """
         )
         result = cursor.fetchone()
         cursor.close()
         if not result:
             return None
 
-        return result[0], result[1]
-    
-    def save_pipeline(self,import_table_registry_id: uuid.UUID, python_code: str, feedback_or_error: Optional[str] = None, previous_version_id: Optional[uuid.UUID] = None) -> uuid.UUID:
+        return {
+            "normalization_pipeline_id": uuid.UUID(result[0]),
+            "python_code": result[1],
+            "feedback_or_error": result[2],
+            "previous_version_id": uuid.UUID(result[3]) if result[3] else None,
+            "created_at": result[4],
+        }
+
+    def save_pipeline(
+        self,
+        import_table_registry_id: uuid.UUID,
+        python_code: str,
+        feedback_or_error: Optional[str] = None,
+        previous_version_id: Optional[uuid.UUID] = None,
+    ) -> uuid.UUID:
         cursor = self.conn.cursor()
         cursor.execute("BEGIN")
         try:
@@ -180,15 +222,20 @@ class SnowflakeWrapper:
                 query += ", %s"
             query += ")"
 
-            values_tuple:Tuple = (str(id), str(datetime.datetime.now()), python_code, feedback_or_error)
+            values_tuple: Tuple = (
+                str(id),
+                str(datetime.datetime.now()),
+                python_code,
+                feedback_or_error,
+            )
             if previous_version_id:
-                values_tuple += (str(previous_version_id),) # type: ignore
+                values_tuple += (str(previous_version_id),)  # type: ignore
 
             cursor.execute(query, values_tuple)
 
             cursor.execute(
                 f"UPDATE import_table_registry SET versioned_normalization_pipeline_id = %s WHERE import_table_registry_id = %s",
-                (str(id), str(import_table_registry_id))
+                (str(id), str(import_table_registry_id)),
             )
             cursor.execute("COMMIT")
             cursor.close()
@@ -198,6 +245,51 @@ class SnowflakeWrapper:
             cursor.close()
             raise e
 
+    def add_brokerage_account_transactions(
+        self,
+        transformed_data: pd.DataFrame,
+        import_run_id: uuid.UUID,
+        versioned_normalization_pipeline_id: uuid.UUID,
+    ) -> None:
+        # todo - add error handling/return value
+        cursor = self.conn.cursor()
+        insert_query = """
+            INSERT INTO staged_brokerage_account_transaction (
+                staged_brokerage_account_transaction_id,
+                versioned_normalization_pipeline_id,
+                external_transaction_id,
+                import_run_id,
+                symbol_or_cusip,
+                price,
+                quantity,
+                amount,
+                side,
+                transaction_date,
+                description
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        # Prepare data for bulk insert
+        values = [
+            (
+                str(uuid.uuid4()),
+                str(versioned_normalization_pipeline_id),
+                str(row["external_transaction_id"]),
+                str(import_run_id),
+                str(row["symbol_or_cusip"]),
+                str(row["price"]),
+                str(row["quantity"]),
+                str(row["amount"]),
+                str(row["side"]),
+                str(row["transaction_date"]),
+                str(row["description"]),
+            )
+            for _, row in transformed_data.iterrows()
+        ]
+
+        # Execute the bulk insert
+        cursor.executemany(insert_query, values)
+        cursor.close()
 
 
 class SnowflakeImportEngine:
@@ -208,7 +300,7 @@ class SnowflakeImportEngine:
         account: str,
         database: str,
         schema: str,
-        sf_wrapper: SnowflakeWrapper
+        sf_wrapper: SnowflakeWrapper,
     ):
         self.conn = snowflake.connector.connect(
             user=user,
@@ -274,7 +366,9 @@ class SnowflakeImportEngine:
 
         # todo - could optimize this so we don't
         # need to get the attributes later
-        import_table_names = self.sf_wrapper.get_import_table_names(source_institution, "CSV")
+        import_table_names = self.sf_wrapper.get_import_table_names(
+            source_institution, "CSV"
+        )
 
         matching_table = self._csv_format_matches_existing_table(
             headers, import_table_names
