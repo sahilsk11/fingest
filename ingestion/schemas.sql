@@ -31,3 +31,14 @@ create table import_table_registry (
   
   primary key (import_table_registry_id)
 );
+
+create table versioned_normalization_pipeline (
+  versioned_normalization_pipeline_id VARCHAR(36) not null,
+  python_code VARCHAR(1000) not null,
+  feedback_or_error VARCHAR(500),
+  previous_version_id VARCHAR(36),
+  created_at timestamp not null
+);
+
+alter table import_table_registry
+add column versioned_normalization_pipeline_id VARCHAR(36);

@@ -1,4 +1,4 @@
-from typing import Tuple, List, Optional
+from typing import Set, Tuple, List, Optional
 import uuid
 import pandas as pd
 import snowflake.connector
@@ -8,8 +8,20 @@ import re
 
 from baml_client.types import AccountType, DataType
 
+from typing import TypedDict, Optional
 
-class SnowflakeImportEngine:
+class ImportTableRegistry(TypedDict, total=False):
+    import_table_registry_id: uuid.UUID
+    table_name: str
+    source_institution: str
+    account_type: AccountType
+    data_type: DataType
+    file_source_format: str
+    versioned_normalization_pipeline_id: Optional[uuid.UUID]
+
+
+
+class SnowflakeWrapper:
     def __init__(
         self, user: str, password: str, account: str, database: str, schema: str
     ):
@@ -24,8 +36,23 @@ class SnowflakeImportEngine:
     def close(self):
         self.conn.close()
 
+    def get_import_run(self, import_run_id: uuid.UUID) -> Optional[dict]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"SELECT * FROM FINGEST.PUBLIC.import_run WHERE import_run_id = '{import_run_id}'"
+        )
+        result = cursor.fetchone()
+        if not result:
+            cursor.close()
+            return None
+        columns = [desc[0] for desc in cursor.description]
+        cursor.close()
+
+        return dict(zip(columns, result))
+
     def create_import_run(
         self,
+        import_id: uuid.UUID,
         source_institution: str,
         account_type: AccountType,
         data_type: DataType,
@@ -34,9 +61,9 @@ class SnowflakeImportEngine:
         s3_bucket: Optional[str] = None,
         s3_path: Optional[str] = None,
         file_name: Optional[str] = None,
-    ) -> uuid.UUID:
+    ) -> None:
+        # todo - add error handling/return value
         cursor = self.conn.cursor()
-        import_id = uuid.uuid4()
         cursor.execute(
             """INSERT INTO import_run (
                 import_run_id, 
@@ -59,54 +86,159 @@ class SnowflakeImportEngine:
                 table_name,
                 s3_bucket,
                 s3_path,
-                file_name
+                file_name,
             ),
+        )
+        cursor.close()
+
+    def get_table_headers(self, table_name: str) -> Optional[Set[str]]:
+        cursor = self.conn.cursor()
+        cursor.execute(f"DESC TABLE {table_name}")
+        result = cursor.fetchone()
+        if not result:
+            return None
+
+        cursor.execute(f"DESC TABLE {table_name}")
+        out = {col[0] for col in cursor.fetchall()}
+        cursor.close()
+        return out
+    
+    def get_inserted_data(self, table_name: str, import_run_id: uuid.UUID) -> Optional[pd.DataFrame]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"SELECT * FROM FINGEST.PUBLIC.{table_name} WHERE import_run_id = '{import_run_id}'"
+        )
+        result = cursor.fetchall()
+        cursor.close()
+        if not result:
+            return None
+        columns = [desc[0] for desc in cursor.description]
+        df = pd.DataFrame(result, columns=columns)
+        return df
+    
+    def get_import_table_names(self, source_institution: str, file_source_format: str) -> List[str]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            (
+                "select table_name from import_table_registry"
+                + f" where source_institution = '{source_institution}'"
+                + f" and file_source_format = '{file_source_format}'"
+            )
+        )
+        cursor.close()
+        import_tables = cursor.fetchall()
+        return [t[0] for t in import_tables]
+    
+    def get_import_table_attributes(self, table_name: str) -> Optional[ImportTableRegistry]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"SELECT account_type, data_type, file_source_format, versioned_normalization_pipeline_id FROM import_table_registry WHERE table_name = '{table_name}'"
+        )
+        table_attributes = cursor.fetchone()
+        cursor.close()
+        if not table_attributes:
+            return None
+        return {
+            "account_type": AccountType(table_attributes[0]),
+            "data_type": DataType(table_attributes[1]),
+            "file_source_format": table_attributes[2],
+            "versioned_normalization_pipeline_id": table_attributes[3],
+        }
+    def get_normalization_pipeline(self, versioned_normalization_pipeline_id: uuid.UUID) -> Optional[Tuple[str, str]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"SELECT python_code, feedback_or_error FROM versioned_normalization_pipeline WHERE versioned_normalization_pipeline_id = '{versioned_normalization_pipeline_id}'"
+        )
+        result = cursor.fetchone()
+        cursor.close()
+        if not result:
+            return None
+
+        return result[0], result[1]
+    
+    def save_pipeline(self, versioned_normalization_pipeline_id: uuid.UUID, python_code: str, feedback_or_error: Optional[str] = None) -> None:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"UPDATE versioned_normalization_pipeline SET python_code = %s, feedback_or_error = %s WHERE versioned_normalization_pipeline_id = %s",
+            (python_code, feedback_or_error, versioned_normalization_pipeline_id)
+        )
+        cursor.close()
+
+class SnowflakeImportEngine:
+    def __init__(
+        self,
+        user: str,
+        password: str,
+        account: str,
+        database: str,
+        schema: str,
+        sf_wrapper: SnowflakeWrapper
+    ):
+        self.conn = snowflake.connector.connect(
+            user=user,
+            password=password,
+            account=account,
+            database=database,
+            schema=schema,
+        )
+        self.sf_wrapper = sf_wrapper
+
+    def create_import_run(
+        self,
+        source_institution: str,
+        account_type: AccountType,
+        data_type: DataType,
+        file_source_format: str,
+        table_name: str,
+        s3_bucket: Optional[str] = None,
+        s3_path: Optional[str] = None,
+        file_name: Optional[str] = None,
+    ) -> uuid.UUID:
+        import_id = uuid.uuid4()
+        self.sf_wrapper.create_import_run(
+            import_id,
+            source_institution,
+            account_type,
+            data_type,
+            file_source_format,
+            table_name,
+            s3_bucket,
+            s3_path,
+            file_name,
         )
         return import_id
 
     def _csv_format_matches_existing_table(
         self, headers: List[str], existing_import_table_names: List[str]
     ) -> Optional[str]:
-        cursor = self.conn.cursor()
         # For each table, check if columns match
         for table_name in existing_import_table_names:
             try:
-                cursor.execute(f"DESC TABLE {table_name}")
-                table_columns: List[str] = {col[0].lower() for col in cursor.fetchall()}
+                table_headers = self.sf_wrapper.get_table_headers(table_name)
+                if not table_headers:
+                    continue
+                table_columns = {h.lower() for h in table_headers}
 
                 # the CSV headers should be a subset of the table columns
                 csv_headers = {h.lower() for h in headers}
                 if csv_headers.issubset(table_columns):
-                    cursor.close()
                     return table_name
 
             except snowflake.connector.errors.ProgrammingError:
                 # Skip tables we can't access or don't exist
                 continue
-        cursor.close()
         return None
 
-    def import_csv(
-        self,
-        csv_as_df: pd.DataFrame,
-        source_institution: str
-    ) -> bool:
+    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str) -> bool:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
         headers = [
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
         ]
-        csv_as_df.columns = headers
+        csv_as_df.columns = pd.Index(headers)
 
-        cursor = self.conn.cursor()
-        cursor.execute(
-            (
-                "select * from import_table_registry"
-                + f" where source_institution = '{source_institution}'"
-                + f" and file_source_format = 'CSV'"
-            )
-        )
-        import_tables: List[Tuple] = cursor.fetchall()
-        import_table_names = [t[1] for t in import_tables]
+        # todo - could optimize this so we don't
+        # need to get the attributes later
+        import_table_names = self.sf_wrapper.get_import_table_names(source_institution, "CSV")
 
         matching_table = self._csv_format_matches_existing_table(
             headers, import_table_names
@@ -114,17 +246,14 @@ class SnowflakeImportEngine:
             csv_as_df, import_table_names, source_institution
         )
 
-        cursor.execute(
-            f"SELECT account_type, data_type FROM import_table_registry WHERE table_name = '{matching_table}'"
-        )
-        table_attributes = cursor.fetchone()
+        table_attributes = self.sf_wrapper.get_import_table_attributes(matching_table)
         if not table_attributes:
             raise ValueError(f"No attributes found for table {matching_table}")
 
         import_run_id = self.create_import_run(
             source_institution,
-            AccountType(table_attributes[0]),
-            DataType(table_attributes[1]),
+            table_attributes["account_type"],
+            table_attributes["data_type"],
             "CSV",
             matching_table,
         )
@@ -140,7 +269,6 @@ class SnowflakeImportEngine:
         )
         print(f"Inserted {nrows} rows into existing table {matching_table}")
 
-        cursor.close()
         return success
 
     def create_import_table_from_csv(
