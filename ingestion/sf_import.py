@@ -1,3 +1,4 @@
+import datetime
 from typing import Set, Tuple, List, Optional
 import uuid
 import pandas as pd
@@ -120,25 +121,35 @@ class SnowflakeWrapper:
         cursor = self.conn.cursor()
         cursor.execute(
             (
-                "select table_name from import_table_registry"
+                "select table_name from fingest.public.import_table_registry"
                 + f" where source_institution = '{source_institution}'"
                 + f" and file_source_format = '{file_source_format}'"
             )
         )
-        cursor.close()
+        
         import_tables = cursor.fetchall()
+        cursor.close()
+        if not import_tables:
+            raise ValueError(f"No import tables found for source institution {source_institution} and file source format {file_source_format}")
         return [t[0] for t in import_tables]
     
     def get_import_table_attributes(self, table_name: str) -> Optional[ImportTableRegistry]:
         cursor = self.conn.cursor()
         cursor.execute(
-            f"SELECT account_type, data_type, file_source_format, versioned_normalization_pipeline_id FROM import_table_registry WHERE table_name = '{table_name}'"
+            f"""SELECT
+                account_type,
+                data_type,
+                file_source_format, versioned_normalization_pipeline_id,
+                import_table_registry_id
+                FROM import_table_registry
+                WHERE table_name = '{table_name}'"""
         )
         table_attributes = cursor.fetchone()
         cursor.close()
         if not table_attributes:
             return None
         return {
+            "import_table_registry_id": table_attributes[4],
             "account_type": AccountType(table_attributes[0]),
             "data_type": DataType(table_attributes[1]),
             "file_source_format": table_attributes[2],
@@ -156,13 +167,38 @@ class SnowflakeWrapper:
 
         return result[0], result[1]
     
-    def save_pipeline(self, versioned_normalization_pipeline_id: uuid.UUID, python_code: str, feedback_or_error: Optional[str] = None) -> None:
+    def save_pipeline(self,import_table_registry_id: uuid.UUID, python_code: str, feedback_or_error: Optional[str] = None, previous_version_id: Optional[uuid.UUID] = None) -> uuid.UUID:
         cursor = self.conn.cursor()
-        cursor.execute(
-            f"UPDATE versioned_normalization_pipeline SET python_code = %s, feedback_or_error = %s WHERE versioned_normalization_pipeline_id = %s",
-            (python_code, feedback_or_error, versioned_normalization_pipeline_id)
-        )
-        cursor.close()
+        cursor.execute("BEGIN")
+        try:
+            id = uuid.uuid4()
+            query = "INSERT INTO versioned_normalization_pipeline (versioned_normalization_pipeline_id, created_at, python_code, feedback_or_error"
+            if previous_version_id:
+                query += ", previous_version_id"
+            query += ") VALUES (%s, %s, %s, %s"
+            if previous_version_id:
+                query += ", %s"
+            query += ")"
+
+            values_tuple:Tuple = (str(id), str(datetime.datetime.now()), python_code, feedback_or_error)
+            if previous_version_id:
+                values_tuple += (str(previous_version_id),) # type: ignore
+
+            cursor.execute(query, values_tuple)
+
+            cursor.execute(
+                f"UPDATE import_table_registry SET versioned_normalization_pipeline_id = %s WHERE import_table_registry_id = %s",
+                (str(id), str(import_table_registry_id))
+            )
+            cursor.execute("COMMIT")
+            cursor.close()
+            return id
+        except Exception as e:
+            cursor.execute("ROLLBACK")
+            cursor.close()
+            raise e
+
+
 
 class SnowflakeImportEngine:
     def __init__(
@@ -323,8 +359,6 @@ class SnowflakeImportEngine:
 
         # Remove trailing comma and close statement
         create_stmt = create_stmt.rstrip(",\n") + "\n)"
-
-        print(create_stmt)
 
         # Execute create table within transaction
         cursor = self.conn.cursor()
