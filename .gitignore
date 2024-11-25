@@ -6,3 +6,4 @@ baml_client
 .env
 sample_data
 secrets.json
+out.log

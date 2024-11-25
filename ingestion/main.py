@@ -35,7 +35,7 @@ def x():
 
     # Read CSV, stopping at the first empty line
     rows = []
-    with open("sample_data/schwab.csv", "r") as f:
+    with open("sample_data/rh.csv", "r") as f:
         reader = csv.reader(f)
         for row in reader:
             if any(cell.strip() for cell in row):
@@ -48,7 +48,9 @@ def x():
         pd.DataFrame(rows[1:], columns=rows[0]).dropna(how="all").reset_index(drop=True)
     )
 
-    sf.import_csv(csv_as_df, "SCHWAB")
+    import_run_id = sf.import_csv(csv_as_df, "ROBINHOOD")
+
+    normalizer.normalize_data(wrapper, import_run_id)
 
     # # sf.import_csv("test.csv")
     # sf.close()
@@ -82,4 +84,4 @@ def z():
         sf, uuid.UUID("6d123e75-154b-47db-be63-39e9afd62771")
     )
 
-z()
+x()

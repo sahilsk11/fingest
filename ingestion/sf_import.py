@@ -357,7 +357,7 @@ class SnowflakeImportEngine:
                 continue
         return None
 
-    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str) -> bool:
+    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str) -> uuid.UUID:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
         headers = [
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
@@ -394,12 +394,12 @@ class SnowflakeImportEngine:
         csv_as_df.insert(1, "IMPORT_RUN_ID", import_run_ids)
         csv_as_df.columns = csv_as_df.columns.str.upper()
 
-        success, _, nrows, _ = write_pandas(
+        _, _, nrows, _ = write_pandas(
             self.conn, csv_as_df, matching_table, auto_create_table=False
         )
         print(f"Inserted {nrows} rows into existing table {matching_table}")
 
-        return success
+        return import_run_id
 
     def create_import_table_from_csv(
         self,
