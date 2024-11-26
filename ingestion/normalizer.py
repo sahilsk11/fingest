@@ -1,7 +1,7 @@
 import datetime
 import json
 from pprint import pprint
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 import uuid
 import pandas as pd
 import psycopg2  # type: ignore
@@ -10,6 +10,7 @@ import re
 
 from baml_client.types import AccountType, DataType
 from baml_client import b
+from domain.normalizer import CodeStep
 from sf_import import ImportTableRegistry, NormalizationPipeline, SnowflakeWrapper
 
 
@@ -127,9 +128,13 @@ def generate_column_transformation_code(
     column: str,
     pg_table_attrs: dict,
     inserted_data: pd.DataFrame,
-) -> str:
+) -> list[CodeStep]:
     inserted_data_json = inserted_data.to_json()
     attrs = pg_table_attrs[column]
+
+    # todo - we should do some of our own preprocessing
+    # to fix null or empty columns from inserted data.
+    # we should also do the paranthesis fix here
 
     # todo - we could attempt debugging here
     # if we made these iterative
@@ -153,68 +158,79 @@ def generate_column_transformation_code(
         planned_steps=planned_steps,
         df_headers=relevant_columns,
     )
-    column_transformation_code = [x.transformation_code for x in transformation_steps]
+    # column_transformation_code = [x.transformation_code for x in transformation_steps]
+    # column_transformation_instructions = [x.instruction for x in transformation_steps]
+
+    out: list[CodeStep] = []
 
     new_df = pd.DataFrame()
-    for i, transformation in enumerate(column_transformation_code):
+    for i, transformation_step in enumerate(transformation_steps):
         works = False
         tries = 3
+        transformation_code = transformation_step.transformation_code
+        transformation_instruction = transformation_step.instruction
         while not works and tries > 0:
             tries -= 1
             try:
                 local_scope = {
                     "inserted_data": inserted_data,
+                    "new_df": new_df,
+                }
+                global_scope = {
                     "pd": pd,
                     "datetime": datetime,
                     "np": np,
                     "re": re,
-                    "new_df": new_df,
                 }
-                exec(transformation, {}, local_scope)
+                exec(transformation_code, global_scope, local_scope)
                 new_df = local_scope.get("new_df")  # type:ignore
                 works = True
                 validate_transformed_column(new_df, pg_table_attrs, column)
             except Exception as e:
                 if tries == 0:
                     raise ValueError(
-                        f"Failed to execute transformation for column {column}: {transformation}. Error: {repr(e)}"
+                        f"Failed to execute transformation for column {column}: {transformation_code}. Error: {repr(e)}"
                     )
-                transformation = b.SelfCorrectColumnTransformation(
-                    instruction=transformation,
-                    previous_code=column_transformation_code[:i],
-                    code=transformation,
+                transformation_code = b.SelfCorrectColumnTransformation(
+                    instruction=transformation_instruction,
+                    previous_code=[
+                        x.transformation_code for x in transformation_steps[:i]
+                    ],
+                    code=transformation_code,
                     error=repr(e),
-                )
+                ).corrected_code
+                # TODO - log the explanation
+            out.append(CodeStep(transformation_code, transformation_instruction))
 
     # at this point, new_df should have a single column, and
     # it should be ready to be added to output_df
     # however, the goal is just to validate the code, not actually apply it
 
     # consider more validation here
-    column_transformation_code.append(f"output_df['{column}'] = new_df['{column}']")
-    return ("; ".join(column_transformation_code)) + "; "
+    out.append(CodeStep(f"output_df['{column}'] = new_df['{column}']", f"set {column}"))
+    return out
 
 
 def generate_df_transformation_code(
     pg_table_name: str,
-    pg_table_attrs: dict,
+    pg_table_attrs: dict[str, Any],
     inserted_data: pd.DataFrame,
-) -> Tuple[str, Optional[str]]:
+) -> Tuple[dict[str, list[CodeStep]], Optional[str]]:
     """
     attempt to generate transformations on all of the columns,
     then stitch the data back together
     """
-    code = ""
+    code_by_column: dict[str, list[CodeStep]] = {}
 
     for column in pg_table_attrs.keys():
-        code += generate_column_transformation_code(
+        code_by_column[column] = generate_column_transformation_code(
             pg_table_name,
             column,
             pg_table_attrs,
             inserted_data,
         )
 
-    return code, None
+    return code_by_column, None
 
 
 def generate_normalization_pipeline(
@@ -256,21 +272,32 @@ def generate_normalization_pipeline(
             return existing_pipeline
 
     remaining_runs = 1
+    code_by_column = None
     while (not code or error) and remaining_runs > 0:
         error = None
         # right now we're ignoring the error
         # because it doesn't return one
-        code, _ = generate_df_transformation_code(
+        code_by_column, _ = generate_df_transformation_code(
             pg_table_name,
             pg_table_attrs,
             inserted_data,
         )
+        # code_by_column = existing_pipeline["python_code_by_column"]
+        # this is lazy
+        code_by_column_serializable = {
+            column: [step.__dict__ for step in steps] for column, steps in code_by_column.items()
+        }
+        code = json.dumps(code_by_column_serializable)
 
         try:
-            transformed_data = apply_pipeline_transformation(code, inserted_data)
+            # we don't store this result - just apply to test it
+            transformed_data = apply_pipeline_transformation(
+                code_by_column, inserted_data
+            )
             validate_transformed_data(transformed_data, pg_table_attrs)
         except Exception as e:
-            error = repr(e)
+            print(e)
+            error = "failed to apply or validate pipeline: " + repr(e)
 
         new_version_id = sf_conn.save_pipeline(
             import_table_registry_id,
@@ -293,31 +320,42 @@ def generate_normalization_pipeline(
         "feedback_or_error": error,
         "previous_version_id": existing_version_id,
         "created_at": datetime.datetime.now(),
+        "python_code_by_column": code_by_column,
     }
 
 
 def apply_pipeline_transformation(
-    pipeline_code: str, inserted_data: pd.DataFrame
+    code_by_column: dict[str, list[CodeStep]], inserted_data: pd.DataFrame
 ) -> pd.DataFrame:
-    # Create a local scope for exec to define transformed_data and include inserted_data
     new_df = pd.DataFrame()
     output_df = pd.DataFrame()
-    local_scope = {
-        "inserted_data": inserted_data,
-        "pd": pd,
-        "datetime": datetime,
-        "np": np,
-        "re": re,
-        "new_df": new_df,
-        "output_df": output_df,
-    }
-    exec(pipeline_code, {}, local_scope)
-    output_df = local_scope.get("output_df")  # type:ignore
+
+    for column, code_details in code_by_column.items():
+        # todo - skip failed columns
+        for d in code_details:
+            pipeline_code = d.code
+            local_scope = {
+                "inserted_data": inserted_data,
+                "new_df": new_df,
+                "output_df": output_df,
+            }
+            global_scope = {
+                "pd": pd,
+                "datetime": datetime,
+                "np": np,
+                "re": re,
+            }
+            try:
+                exec(pipeline_code, global_scope, local_scope)
+            except Exception as e:
+                # i don't think we should self-correct here. we can consider how to store the error
+                # but another function should handle
+                raise Exception(f"Error executing pipeline code on column {column} running {pipeline_code}: {repr(e)}")
+            output_df = local_scope.get("output_df")  # type:ignore
+            new_df = local_scope.get("new_df")  # type:ignore
 
     if output_df is None or not isinstance(output_df, pd.DataFrame):
         raise ValueError("Pipeline did not produce transformed_data")
-
-    print(output_df)
 
     return output_df
 
@@ -364,9 +402,12 @@ def normalize_data(sf_conn: SnowflakeWrapper, import_run_id: uuid.UUID) -> pd.Da
     )
     if pipeline["feedback_or_error"]:
         raise ValueError(f"Error in pipeline: {pipeline['feedback_or_error']}")
+    
+    if not pipeline["python_code_by_column"]:
+        raise Exception("deprecated code as str - please regenerate")
 
     # i feel like we should validate the pipeline here
-    transformed = apply_pipeline_transformation(pipeline["python_code"], inserted_data)
+    transformed = apply_pipeline_transformation(pipeline["python_code_by_column"], inserted_data)
 
     sf_conn.add_brokerage_account_transactions(
         transformed,

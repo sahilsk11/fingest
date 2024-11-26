@@ -81,7 +81,7 @@ def z():
         database=passwords.get_snowflake_database(),
     )
     normalized_data = normalizer.normalize_data(
-        sf, uuid.UUID("6d123e75-154b-47db-be63-39e9afd62771")
+        sf, uuid.UUID("402d717c-fdaa-46f6-b4b4-bf61faf09eee")
     )
 
 x()

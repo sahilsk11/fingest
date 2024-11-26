@@ -1,11 +1,14 @@
 import datetime
+import json
 from typing import Set, Tuple, List, Optional
 import uuid
+import numpy as np
 import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
 from baml_client import b
 import re
+from domain.normalizer import CodeStep
 
 from baml_client.types import AccountType, DataType
 
@@ -24,7 +27,8 @@ class ImportTableRegistry(TypedDict, total=False):
 
 class NormalizationPipeline(TypedDict):
     normalization_pipeline_id: uuid.UUID
-    python_code: str
+    python_code: str  # deprecated
+    python_code_by_column: Optional[dict[str, list[CodeStep]]]
     feedback_or_error: Optional[str]
     previous_version_id: Optional[uuid.UUID]
     created_at: datetime.datetime
@@ -194,6 +198,13 @@ class SnowflakeWrapper:
         cursor.close()
         if not result:
             return None
+        
+        python_code_by_column: Optional[dict[str, list[CodeStep]]] = None
+        if result[1]:
+            try:
+                python_code_by_column = {k: [CodeStep(**step) for step in v] for k, v in json.loads(result[1]).items()}
+            except Exception:
+                pass
 
         return {
             "normalization_pipeline_id": uuid.UUID(result[0]),
@@ -201,6 +212,7 @@ class SnowflakeWrapper:
             "feedback_or_error": result[2],
             "previous_version_id": uuid.UUID(result[3]) if result[3] else None,
             "created_at": result[4],
+            "python_code_by_column": python_code_by_column,
         }
 
     def save_pipeline(
@@ -210,6 +222,7 @@ class SnowflakeWrapper:
         feedback_or_error: Optional[str] = None,
         previous_version_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
+        print(len(python_code))
         cursor = self.conn.cursor()
         cursor.execute("BEGIN")
         try:
@@ -244,6 +257,11 @@ class SnowflakeWrapper:
             cursor.execute("ROLLBACK")
             cursor.close()
             raise e
+        
+    def clean_df_for_insertion(self, df: pd.DataFrame) -> pd.DataFrame:
+        # if rows have NaN, replace them with null
+        df = df.replace(np.nan, None)
+        return df
 
     def add_brokerage_account_transactions(
         self,
@@ -251,6 +269,7 @@ class SnowflakeWrapper:
         import_run_id: uuid.UUID,
         versioned_normalization_pipeline_id: uuid.UUID,
     ) -> None:
+        transformed_data = self.clean_df_for_insertion(transformed_data)
         # todo - add error handling/return value
         cursor = self.conn.cursor()
         insert_query = """
@@ -274,15 +293,15 @@ class SnowflakeWrapper:
             (
                 str(uuid.uuid4()),
                 str(versioned_normalization_pipeline_id),
-                str(row["external_transaction_id"]),
+                row["external_transaction_id"],
                 str(import_run_id),
-                str(row["symbol_or_cusip"]),
-                str(row["price"]),
-                str(row["quantity"]),
-                str(row["amount"]),
-                str(row["side"]),
+                row["symbol_or_cusip"],
+                row["price"],
+                row["quantity"],
+                row["amount"],
+                row["side"],
                 str(row["transaction_date"]),
-                str(row["description"]),
+                row["description"],
             )
             for _, row in transformed_data.iterrows()
         ]
@@ -363,6 +382,10 @@ class SnowflakeImportEngine:
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
         ]
         csv_as_df.columns = pd.Index(headers)
+        # Check and print the type and value of each cell in 'Quantity' column
+        quantity_column = csv_as_df['QUANTITY']
+        print("Types and values of each cell in 'Quantity' column:")
+        print(quantity_column.apply(lambda x: f"{type(x)}: {x}"))
 
         # todo - could optimize this so we don't
         # need to get the attributes later
