@@ -15,6 +15,10 @@ type uploadedFileRepositoryHandler struct {
 	db *sql.DB
 }
 
+func NewUploadedFileRepository(db *sql.DB) UploadedFileRepository {
+	return &uploadedFileRepositoryHandler{db: db}
+}
+
 // Add function to insert a new uploaded file record
 func (r *uploadedFileRepositoryHandler) Add(uploadedFile model.UploadedFile) (*model.UploadedFile, error) {
 	t := table.UploadedFile
