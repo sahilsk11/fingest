@@ -54,9 +54,17 @@ function DisplayAddedFile(
     function formatFileName(fileName: string) {
         return fileName.length > 25 ? `${fileName.substring(0, 10)}...${fileName.substring(fileName.length - 10)}` : fileName
     }
+
+    function formatFileSize(fileSize: number) {
+        if (fileSize < 1024 * 1024) {
+            return (fileSize / 1024).toFixed(2) + " KB"
+        } else {
+            return (fileSize / (1024 * 1024)).toFixed(2) + " MB"
+        }
+    }
   return (
     <div key={keyName} className="flex justify-between items-center mt-2">
-      <p className="text-gray-600 text-sm">{formatFileName(file.name)} ({(file.size / (1024 * 1024)).toFixed(2)} MB)</p>
+      <p className="text-gray-600 text-sm">{formatFileName(file.name)} ({formatFileSize(file.size)})</p>
       <button onClick={() => removeFile(file)} className="text-grey-400">
         <X />
       </button>
