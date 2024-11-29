@@ -30,7 +30,7 @@ export default function FileInput({ onFileUpload, files, removeFile }: { onFileU
 
         <div className="mt-4">
           {files.map(file => (
-            <DisplayAddedFile key={file.name} file={file} removeFile={removeFile} />
+            <DisplayAddedFile key={file.name} keyName={file.name} file={file} removeFile={removeFile} />
           ))}
         </div>
       </CardContent>
@@ -45,17 +45,17 @@ function DisplayAddedFile(
   {
     file,
     removeFile,
-    key,
+    keyName,
   }: {
     file: File;
     removeFile: (file: File) => void;
-    key: string;
+    keyName: string;
   }) {
     function formatFileName(fileName: string) {
         return fileName.length > 25 ? `${fileName.substring(0, 10)}...${fileName.substring(fileName.length - 10)}` : fileName
     }
   return (
-    <div key={key} className="flex justify-between items-center mt-2">
+    <div key={keyName} className="flex justify-between items-center mt-2">
       <p className="text-gray-600 text-sm">{formatFileName(file.name)} ({(file.size / (1024 * 1024)).toFixed(2)} MB)</p>
       <button onClick={() => removeFile(file)} className="text-grey-400">
         <X />
@@ -93,8 +93,9 @@ function X(
     viewBox="0 0 24 24"
     fill="none"
     stroke="grey"
-    stroke-width="1.8"
-    stroke-linecap="round" stroke-linejoin="round"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
     className="lucide lucide-x">
     <path d="M18 6 6 18" />
     <path d="m6 6 12 12" />

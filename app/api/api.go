@@ -23,11 +23,7 @@ func (m ApiHandler) InitializeRouterEngine(ctx context.Context) *gin.Engine {
 
 	engine.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
-			"http://localhost:3000",
-			"https://factorbacktest.net",
-			"https://www.factorbacktest.net",
-			"https://factor.trade",
-			"https://www.factor.trade",
+			"http://localhost:5173",
 		},
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
