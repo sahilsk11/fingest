@@ -14,6 +14,8 @@ from baml_client.types import AccountType, DataType
 
 from typing import TypedDict, Optional
 
+from broker import MessageBroker
+
 
 class ImportTableRegistry(TypedDict, total=False):
     import_table_registry_id: uuid.UUID
@@ -65,7 +67,6 @@ class SnowflakeWrapper:
 
     def create_import_run(
         self,
-        import_id: uuid.UUID,
         source_institution: str,
         account_type: AccountType,
         data_type: DataType,
@@ -74,7 +75,8 @@ class SnowflakeWrapper:
         s3_bucket: Optional[str] = None,
         s3_path: Optional[str] = None,
         file_name: Optional[str] = None,
-    ) -> None:
+    ) -> uuid.UUID:
+        import_id = uuid.uuid4()
         # todo - add error handling/return value
         cursor = self.conn.cursor()
         cursor.execute(
@@ -103,6 +105,7 @@ class SnowflakeWrapper:
             ),
         )
         cursor.close()
+        return import_id
 
     def get_table_headers(self, table_name: str) -> Optional[Set[str]]:
         cursor = self.conn.cursor()
@@ -310,6 +313,55 @@ class SnowflakeWrapper:
         cursor.executemany(insert_query, values)
         cursor.close()
 
+    def update_import_run(
+        self,
+        import_run_id: uuid.UUID,
+        source_institution: Optional[str] = None,
+        account_type: Optional[AccountType] = None,
+        data_type: Optional[DataType] = None,
+        file_source_format: Optional[str] = None,
+        table_name: Optional[str] = None,
+        s3_bucket: Optional[str] = None,
+        s3_path: Optional[str] = None,
+        file_name: Optional[str] = None,
+    ) -> None:
+        # TODO - hadd updated_at on import_run
+        cursor = self.conn.cursor()
+        updates = []
+        values = []
+
+        if source_institution is not None:
+            updates.append("source_institution = %s")
+            values.append(source_institution)
+        if account_type is not None:
+            updates.append("account_type = %s")
+            values.append(account_type.value)
+        if data_type is not None:
+            updates.append("data_type = %s")
+            values.append(data_type.value)
+        if file_source_format is not None:
+            updates.append("file_source_format = %s")
+            values.append(file_source_format)
+        if table_name is not None:
+            updates.append("table_name = %s")
+            values.append(table_name)
+        if s3_bucket is not None:
+            updates.append("s3_bucket = %s")
+            values.append(s3_bucket)
+        if s3_path is not None:
+            updates.append("s3_path = %s")
+            values.append(s3_path)
+        if file_name is not None:
+            updates.append("file_name = %s")
+            values.append(file_name)
+
+        if updates:
+            query = f"UPDATE import_run SET {', '.join(updates)} WHERE import_run_id = %s"
+            values.append(str(import_run_id))
+            cursor.execute(query, values)
+
+        cursor.close()
+
 
 class SnowflakeImportEngine:
     def __init__(
@@ -320,6 +372,7 @@ class SnowflakeImportEngine:
         database: str,
         schema: str,
         sf_wrapper: SnowflakeWrapper,
+        broker: Optional[MessageBroker] = None,
     ):
         self.conn = snowflake.connector.connect(
             user=user,
@@ -329,31 +382,7 @@ class SnowflakeImportEngine:
             schema=schema,
         )
         self.sf_wrapper = sf_wrapper
-
-    def create_import_run(
-        self,
-        source_institution: str,
-        account_type: AccountType,
-        data_type: DataType,
-        file_source_format: str,
-        table_name: str,
-        s3_bucket: Optional[str] = None,
-        s3_path: Optional[str] = None,
-        file_name: Optional[str] = None,
-    ) -> uuid.UUID:
-        import_id = uuid.uuid4()
-        self.sf_wrapper.create_import_run(
-            import_id,
-            source_institution,
-            account_type,
-            data_type,
-            file_source_format,
-            table_name,
-            s3_bucket,
-            s3_path,
-            file_name,
-        )
-        return import_id
+        self.broker = broker
 
     def _csv_format_matches_existing_table(
         self, headers: List[str], existing_import_table_names: List[str]
@@ -376,7 +405,7 @@ class SnowflakeImportEngine:
                 continue
         return None
 
-    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str) -> uuid.UUID:
+    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str, import_run_id: Optional[uuid.UUID] = None) -> uuid.UUID:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
         headers = [
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
@@ -391,27 +420,44 @@ class SnowflakeImportEngine:
 
         matching_table = self._csv_format_matches_existing_table(
             headers, import_table_names
-        ) or self.create_import_table_from_csv(
-            csv_as_df, import_table_names, source_institution
-        )
+        ) 
+        if matching_table:
+            self.broker.publish("MATCHED_SF_TABLE", {"tableName": matching_table, "isNew": False}, import_run_id) if self.broker else None
+        else:
+            matching_table = self._create_import_table_from_csv(
+                csv_as_df, import_table_names, source_institution
+            )
+            self.broker.publish("MATCHED_SF_TABLE", {"tableName": matching_table, "isNew": True}, import_run_id) if self.broker else None
 
         table_attributes = self.sf_wrapper.get_import_table_attributes(matching_table)
         if not table_attributes:
             raise ValueError(f"No attributes found for table {matching_table}")
 
-        import_run_id = self.create_import_run(
-            source_institution,
-            table_attributes["account_type"],
-            table_attributes["data_type"],
-            "CSV",
-            matching_table,
-        )
+        if not import_run_id:
+            import_run_id = self.sf_wrapper.create_import_run(
+                source_institution,
+                table_attributes["account_type"],
+                table_attributes["data_type"],
+                "CSV",
+                matching_table,
+            )
+        else:
+            self.sf_wrapper.update_import_run(
+                import_run_id,
+                source_institution,
+                table_attributes["account_type"],
+                table_attributes["data_type"],
+                "CSV",
+                matching_table,
+            )
 
         row_ids = [str(uuid.uuid4()) for _ in range(len(csv_as_df))]
         import_run_ids = [str(import_run_id)] * len(csv_as_df)
         csv_as_df.insert(0, f"{matching_table}_ID", row_ids)
         csv_as_df.insert(1, "IMPORT_RUN_ID", import_run_ids)
         csv_as_df.columns = csv_as_df.columns.str.upper()
+        self.broker.publish("CONVERTED_TO_TABULAR", {"tableName": matching_table, "isNew": True}) if self.broker else None
+
 
         _, _, nrows, _ = write_pandas(
             self.conn, csv_as_df, matching_table, auto_create_table=False
@@ -420,7 +466,7 @@ class SnowflakeImportEngine:
 
         return import_run_id
 
-    def create_import_table_from_csv(
+    def _create_import_table_from_csv(
         self,
         csv_as_df: pd.DataFrame,
         import_table_names: list[str],
