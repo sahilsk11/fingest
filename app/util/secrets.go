@@ -9,6 +9,7 @@ import (
 type Secrets struct {
 	Snowflake SnowflakeCredentials `json:"snowflake"`
 	Database  DatabaseCredentials  `json:"database"`
+	Kafka     KafkaCredentials     `json:"kafka"`
 }
 
 type DatabaseCredentials struct {
@@ -25,6 +26,11 @@ type SnowflakeCredentials struct {
 	Account  string `json:"account"`
 	Schema   string `json:"schema"`
 	Database string `json:"database"`
+}
+
+type KafkaCredentials struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
 }
 
 func GetSecrets() (*Secrets, error) {

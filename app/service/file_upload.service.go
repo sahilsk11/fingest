@@ -58,11 +58,12 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 
 	sourceInstitution := "AMEX"
 
-	notifyUploadedResponse, err := h.IngestionRepository.NotifyFileUploaded(uploadedFile.S3Bucket, uploadedFile.S3FilePath, sourceInstitution)
+	importRunId := uuid.New()
+	notifyUploadedResponse, err := h.IngestionRepository.NotifyFileUploaded(uuid.New(), uploadedFile.S3Bucket, uploadedFile.S3FilePath, sourceInstitution)
 	if err != nil {
 		return fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
 	}
-	importRunId, err := uuid.Parse(notifyUploadedResponse.ImportRunID.String())
+	_, err = uuid.Parse(notifyUploadedResponse.ImportRunID.String())
 	if err != nil {
 		return fmt.Errorf("failed to parse ingestion notify uploaded response: %w", err)
 	}

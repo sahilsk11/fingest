@@ -7,23 +7,34 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/sahilsk11/fingest/app/broker"
 )
 
 // we can move this to Kafka but for now, just use REST services to communicate with python backend
 
 type IngestionRepository interface {
-	NotifyFileUploaded(s3Bucket string, s3FilePath string, sourceInstition string) (*NotifyFileUploadedResponse, error)
+	NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error)
 }
 
-type ingestionRepositoryHandler struct {
+type ingestionRepositoryRestHandler struct {
 	host   string
 	client *http.Client
 }
 
-func NewIngestionRepository(host string, client *http.Client) IngestionRepository {
-	return &ingestionRepositoryHandler{
+type ingestionRepositoryBrokerHandler struct {
+	Producer broker.Producer
+}
+
+func NewSynchronousIngestionRepository(host string, client *http.Client) IngestionRepository {
+	return &ingestionRepositoryRestHandler{
 		host:   host,
 		client: client,
+	}
+}
+
+func NewAsynchronousIngestionRepository(producer broker.Producer) IngestionRepository {
+	return &ingestionRepositoryBrokerHandler{
+		Producer: producer,
 	}
 }
 
@@ -37,7 +48,7 @@ type NotifyFileUploadedResponse struct {
 	ImportRunID uuid.UUID `json:"importRunId"`
 }
 
-func (h *ingestionRepositoryHandler) NotifyFileUploaded(s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error) {
+func (h *ingestionRepositoryRestHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error) {
 	// todo - add error handling/return value
 	body := notifyFileUploadedRequest{
 		S3Bucket:          s3Bucket,
@@ -67,4 +78,18 @@ func (h *ingestionRepositoryHandler) NotifyFileUploaded(s3Bucket string, s3FileP
 	}
 
 	return &response, nil
+}
+
+func (h *ingestionRepositoryBrokerHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error) {
+	// todo - add error handling/return value
+	payload := map[string]interface{}{
+		"s3Bucket":          s3Bucket,
+		"s3FilePath":        s3FilePath,
+		"sourceInstitution": sourceInstitution,
+	}
+	err := h.Producer.Publish("FILE_UPLOADED", payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish ingestion notify uploaded event: %w", err)
+	}
+	return &NotifyFileUploadedResponse{}, nil
 }

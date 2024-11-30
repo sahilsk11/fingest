@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/sahilsk11/fingest/app/api"
+	"github.com/sahilsk11/fingest/app/broker"
 	"github.com/sahilsk11/fingest/app/repository"
 	"github.com/sahilsk11/fingest/app/service"
 	"github.com/sahilsk11/fingest/app/util"
@@ -32,8 +32,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	producer, err := broker.NewProducer(secrets.Kafka.Host, secrets.Kafka.Port)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	ingestionRepository := repository.NewIngestionRepository("http://localhost:5010", http.DefaultClient)
+	ingestionRepository := repository.NewAsynchronousIngestionRepository(producer)
 
 	s3Repository, err := repository.NewS3Repository(cfg)
 	if err != nil {
