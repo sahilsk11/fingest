@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-jet/jet/v2/postgres"
 	"github.com/go-jet/jet/v2/qrm"
@@ -15,6 +16,7 @@ import (
 
 type ImportRunStateRepository interface {
 	Get(importRunId uuid.UUID) (*model.ImportRunState, error)
+	Create(m model.ImportRunState) (*model.ImportRunState, error)
 }
 
 type importRunStateRepositoryHandler struct {
@@ -38,6 +40,20 @@ func (h *importRunStateRepositoryHandler) Get(importRunId uuid.UUID) (*model.Imp
 		return nil, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to fetch import run state: %w", err)
+	}
+
+	return &out, nil
+}
+
+func (h *importRunStateRepositoryHandler) Create(m model.ImportRunState) (*model.ImportRunState, error) {
+	m.CreatedAt = time.Now().UTC()
+	m.UpdatedAt = time.Now().UTC()
+	t := table.ImportRunState
+	query := t.INSERT(t.MutableColumns).MODEL(m).RETURNING(t.AllColumns)
+	out := model.ImportRunState{}
+	err := query.Query(h.db, &out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create import run state: %w", err)
 	}
 
 	return &out, nil

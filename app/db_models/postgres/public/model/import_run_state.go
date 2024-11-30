@@ -13,9 +13,9 @@ import (
 )
 
 type ImportRunState struct {
-	ImportRunStatusID uuid.UUID `sql:"primary_key"`
-	ImportRunID       uuid.UUID
-	Status            ImportRunStatus
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ImportRunStateID uuid.UUID `sql:"primary_key"`
+	ImportRunID      uuid.UUID
+	Status           ImportRunStatus
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }

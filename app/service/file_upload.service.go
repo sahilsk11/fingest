@@ -16,20 +16,23 @@ type FileUploadService interface {
 }
 
 type fileUploadServiceHandler struct {
-	UploadedFileRepository repository.UploadedFileRepository
-	S3Repository           repository.S3Repository
-	IngestionRepository    repository.IngestionRepository
+	UploadedFileRepository   repository.UploadedFileRepository
+	S3Repository             repository.S3Repository
+	IngestionRepository      repository.IngestionRepository
+	ImportRunStateRepository repository.ImportRunStateRepository
 }
 
 func NewFileUploadService(
 	uploadedFileRepository repository.UploadedFileRepository,
 	s3Repository repository.S3Repository,
 	ingestionRepository repository.IngestionRepository,
+	importRunStateRepository repository.ImportRunStateRepository,
 ) FileUploadService {
 	return &fileUploadServiceHandler{
-		UploadedFileRepository: uploadedFileRepository,
-		S3Repository:           s3Repository,
-		IngestionRepository:    ingestionRepository,
+		UploadedFileRepository:   uploadedFileRepository,
+		S3Repository:             s3Repository,
+		IngestionRepository:      ingestionRepository,
+		ImportRunStateRepository: importRunStateRepository,
 	}
 }
 
@@ -53,9 +56,23 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 		return fmt.Errorf("failed to add uploaded file to db: %w", err)
 	}
 
-	err = h.IngestionRepository.NotifyFileUploaded(uploadedFile.S3Bucket, uploadedFile.S3FilePath)
+	sourceInstitution := "AMEX"
+
+	notifyUploadedResponse, err := h.IngestionRepository.NotifyFileUploaded(uploadedFile.S3Bucket, uploadedFile.S3FilePath, sourceInstitution)
 	if err != nil {
 		return fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
+	}
+	importRunId, err := uuid.Parse(notifyUploadedResponse.ImportRunID.String())
+	if err != nil {
+		return fmt.Errorf("failed to parse ingestion notify uploaded response: %w", err)
+	}
+
+	_, err = h.ImportRunStateRepository.Create(model.ImportRunState{
+		ImportRunID: importRunId,
+		Status:      model.ImportRunStatus_Pending,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create import run state: %w", err)
 	}
 
 	return nil

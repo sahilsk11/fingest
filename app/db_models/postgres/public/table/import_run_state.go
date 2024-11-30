@@ -17,11 +17,11 @@ type importRunStateTable struct {
 	postgres.Table
 
 	//Columns
-	ImportRunStatusID postgres.ColumnString
-	ImportRunID       postgres.ColumnString
-	Status            postgres.ColumnString
-	CreatedAt         postgres.ColumnTimestampz
-	UpdatedAt         postgres.ColumnTimestampz
+	ImportRunStateID postgres.ColumnString
+	ImportRunID      postgres.ColumnString
+	Status           postgres.ColumnString
+	CreatedAt        postgres.ColumnTimestampz
+	UpdatedAt        postgres.ColumnTimestampz
 
 	AllColumns     postgres.ColumnList
 	MutableColumns postgres.ColumnList
@@ -52,24 +52,24 @@ func newImportRunStateTable(schemaName, tableName, alias string) *ImportRunState
 
 func newImportRunStateTableImpl(schemaName, tableName, alias string) importRunStateTable {
 	var (
-		ImportRunStatusIDColumn = postgres.StringColumn("import_run_status_id")
-		ImportRunIDColumn       = postgres.StringColumn("import_run_id")
-		StatusColumn            = postgres.StringColumn("status")
-		CreatedAtColumn         = postgres.TimestampzColumn("created_at")
-		UpdatedAtColumn         = postgres.TimestampzColumn("updated_at")
-		allColumns              = postgres.ColumnList{ImportRunStatusIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn, UpdatedAtColumn}
-		mutableColumns          = postgres.ColumnList{ImportRunIDColumn, StatusColumn, CreatedAtColumn, UpdatedAtColumn}
+		ImportRunStateIDColumn = postgres.StringColumn("import_run_state_id")
+		ImportRunIDColumn      = postgres.StringColumn("import_run_id")
+		StatusColumn           = postgres.StringColumn("status")
+		CreatedAtColumn        = postgres.TimestampzColumn("created_at")
+		UpdatedAtColumn        = postgres.TimestampzColumn("updated_at")
+		allColumns             = postgres.ColumnList{ImportRunStateIDColumn, ImportRunIDColumn, StatusColumn, CreatedAtColumn, UpdatedAtColumn}
+		mutableColumns         = postgres.ColumnList{ImportRunIDColumn, StatusColumn, CreatedAtColumn, UpdatedAtColumn}
 	)
 
 	return importRunStateTable{
 		Table: postgres.NewTable(schemaName, tableName, alias, allColumns...),
 
 		//Columns
-		ImportRunStatusID: ImportRunStatusIDColumn,
-		ImportRunID:       ImportRunIDColumn,
-		Status:            StatusColumn,
-		CreatedAt:         CreatedAtColumn,
-		UpdatedAt:         UpdatedAtColumn,
+		ImportRunStateID: ImportRunStateIDColumn,
+		ImportRunID:      ImportRunIDColumn,
+		Status:           StatusColumn,
+		CreatedAt:        CreatedAtColumn,
+		UpdatedAt:        UpdatedAtColumn,
 
 		AllColumns:     allColumns,
 		MutableColumns: mutableColumns,

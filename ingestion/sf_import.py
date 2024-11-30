@@ -382,10 +382,6 @@ class SnowflakeImportEngine:
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
         ]
         csv_as_df.columns = pd.Index(headers)
-        # Check and print the type and value of each cell in 'Quantity' column
-        quantity_column = csv_as_df['QUANTITY']
-        print("Types and values of each cell in 'Quantity' column:")
-        print(quantity_column.apply(lambda x: f"{type(x)}: {x}"))
 
         # todo - could optimize this so we don't
         # need to get the attributes later
