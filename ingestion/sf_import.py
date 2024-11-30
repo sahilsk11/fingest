@@ -75,8 +75,9 @@ class SnowflakeWrapper:
         s3_bucket: Optional[str] = None,
         s3_path: Optional[str] = None,
         file_name: Optional[str] = None,
+        import_run_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
-        import_id = uuid.uuid4()
+        import_id = import_run_id or uuid.uuid4()
         # todo - add error handling/return value
         cursor = self.conn.cursor()
         cursor.execute(
@@ -433,13 +434,14 @@ class SnowflakeImportEngine:
         if not table_attributes:
             raise ValueError(f"No attributes found for table {matching_table}")
 
-        if not import_run_id:
+        if not import_run_id or not self.sf_wrapper.get_import_run(import_run_id):
             import_run_id = self.sf_wrapper.create_import_run(
                 source_institution,
                 table_attributes["account_type"],
                 table_attributes["data_type"],
                 "CSV",
                 matching_table,
+                import_run_id=import_run_id,
             )
         else:
             self.sf_wrapper.update_import_run(
