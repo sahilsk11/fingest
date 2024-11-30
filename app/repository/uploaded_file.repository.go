@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/sahilsk11/fingest/app/db_models/postgres/public/model"
 	"github.com/sahilsk11/fingest/app/db_models/postgres/public/table"
@@ -21,6 +22,8 @@ func NewUploadedFileRepository(db *sql.DB) UploadedFileRepository {
 
 // Add function to insert a new uploaded file record
 func (r *uploadedFileRepositoryHandler) Add(uploadedFile model.UploadedFile) (*model.UploadedFile, error) {
+	uploadedFile.CreatedAt = time.Now().UTC()
+
 	t := table.UploadedFile
 	query := t.INSERT(t.MutableColumns).MODEL(uploadedFile).RETURNING(t.AllColumns)
 	out := model.UploadedFile{}

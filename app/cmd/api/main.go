@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/sahilsk11/fingest/app/api"
@@ -32,12 +33,14 @@ func main() {
 		log.Fatal(err)
 	}
 
+	ingestionRepository := repository.NewIngestionRepository("http://localhost:5010", http.DefaultClient)
+
 	s3Repository, err := repository.NewS3Repository(cfg)
 	if err != nil {
 		panic(err)
 	}
 	fileUploadRepository := repository.NewUploadedFileRepository(db)
-	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository)
+	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository, ingestionRepository)
 
 	apiHandler := api.ApiHandler{
 		FileUploadService: fileUploadService,
