@@ -27,7 +27,7 @@ func (m ApiHandler) uploadFile(c *gin.Context) {
 		return
 	}
 
-	err = m.FileUploadService.UploadFile(
+	importRunId, err := m.AppDependencies.FileUploadService.UploadFile(
 		file.Filename,
 		fileBytes,
 		int(fileSizeKb),
@@ -38,6 +38,6 @@ func (m ApiHandler) uploadFile(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"message": "file uploaded successfully",
+		"importRunId": importRunId.String(),
 	})
 }

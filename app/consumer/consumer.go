@@ -19,7 +19,7 @@ type Consumer interface {
 
 type consumerHandler struct {
 	consumer        *kafka.Consumer
-	appDependencies *cmd.Dependencies
+	appDependencies cmd.Dependencies
 }
 
 type Event struct {
@@ -43,7 +43,7 @@ func NewConsumer(host string, port int, appDependencies *cmd.Dependencies) (Cons
 
 	return &consumerHandler{
 		consumer:        consumer,
-		appDependencies: appDependencies,
+		appDependencies: *appDependencies,
 	}, nil
 }
 

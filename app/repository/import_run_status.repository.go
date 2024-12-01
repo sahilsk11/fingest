@@ -17,6 +17,7 @@ import (
 type ImportRunStatusRepository interface {
 	Get(importRunId uuid.UUID) (*model.ImportRunStatus, error)
 	Create(m model.ImportRunStatus) (*model.ImportRunStatus, error)
+	List(filterOptions FilterOptions, sortOptions SortOptions) ([]model.ImportRunStatus, error)
 }
 
 type ImportRunStatusRepositoryHandler struct {
@@ -50,6 +51,12 @@ func (h *ImportRunStatusRepositoryHandler) Create(m model.ImportRunStatus) (*mod
 	// this is confusing, but the timestamp here should be the time
 	// the event occurred
 	// m.UpdatedAt = time.Now().UTC()
+	if m.Status == "" {
+		return nil, fmt.Errorf("status cannot be empty")
+	}
+	if m.UpdatedAt.IsZero() {
+		return nil, fmt.Errorf("updated at cannot be empty")
+	}
 	t := table.ImportRunStatus
 	query := t.INSERT(t.MutableColumns).MODEL(m).RETURNING(t.AllColumns)
 	out := model.ImportRunStatus{}
@@ -59,4 +66,20 @@ func (h *ImportRunStatusRepositoryHandler) Create(m model.ImportRunStatus) (*mod
 	}
 
 	return &out, nil
+}
+
+func (h *ImportRunStatusRepositoryHandler) List(filterOptions FilterOptions, sortOptions SortOptions) ([]model.ImportRunStatus, error) {
+	t := table.ImportRunStatus
+	query := t.SELECT(t.AllColumns).
+		WHERE(
+			postgres.AND(filterOptions...),
+		).ORDER_BY(sortOptions.ToSql()...)
+
+	out := []model.ImportRunStatus{}
+	err := query.Query(h.db, &out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list import run state: %w", err)
+	}
+
+	return out, nil
 }

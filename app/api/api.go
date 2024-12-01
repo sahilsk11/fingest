@@ -2,19 +2,17 @@ package api
 
 import (
 	"context"
-	"database/sql"
 
 	"fmt"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/sahilsk11/fingest/app/service"
+	"github.com/sahilsk11/fingest/app/cmd"
 )
 
 type ApiHandler struct {
-	Db                *sql.DB
-	FileUploadService service.FileUploadService
-	JwtDecodeToken    string
+	JwtDecodeToken  string
+	AppDependencies cmd.Dependencies
 }
 
 func (m ApiHandler) InitializeRouterEngine(ctx context.Context) *gin.Engine {
@@ -29,10 +27,11 @@ func (m ApiHandler) InitializeRouterEngine(ctx context.Context) *gin.Engine {
 	}))
 
 	engine.GET("/", func(ctx *gin.Context) {
-		ctx.JSON(200, map[string]string{"message": "welcome to alpha"})
+		ctx.JSON(200, map[string]string{"message": "welcome to fingest"})
 	})
 
 	engine.POST("/upload", m.uploadFile)
+	engine.POST("/list-import-run-updates", m.listImportRunUpdates)
 
 	return engine
 }

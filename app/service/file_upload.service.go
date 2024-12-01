@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sahilsk11/fingest/app/db_models/postgres/public/model"
@@ -12,7 +13,7 @@ import (
 const MAX_FILE_SIZE_KB = 1024 * 1024 * 10
 
 type FileUploadService interface {
-	UploadFile(filename string, fileBytes []byte, fileSizeKb int) error
+	UploadFile(filename string, fileBytes []byte, fileSizeKb int) (*uuid.UUID, error)
 }
 
 type fileUploadServiceHandler struct {
@@ -36,10 +37,10 @@ func NewFileUploadService(
 	}
 }
 
-func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte, fileSizeKb int) error {
+func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte, fileSizeKb int) (*uuid.UUID, error) {
 	filePath, err := h.S3Repository.UploadFile(context.Background(), filename, fileBytes, fileSizeKb)
 	if err != nil {
-		return fmt.Errorf("failed to upload file to S3: %w", err)
+		return nil, fmt.Errorf("failed to upload file to S3: %w", err)
 	}
 
 	userId := uuid.MustParse("761e3e29-c372-4e41-be6c-9475d53c642b")
@@ -53,7 +54,7 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 		FileSizeKb:       int32(fileSizeKb),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to add uploaded file to db: %w", err)
+		return nil, fmt.Errorf("failed to add uploaded file to db: %w", err)
 	}
 
 	sourceInstitution := "AMEX"
@@ -66,20 +67,21 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 		sourceInstitution,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
+		return nil, fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
 	}
 	_, err = uuid.Parse(notifyUploadedResponse.ImportRunID.String())
 	if err != nil {
-		return fmt.Errorf("failed to parse ingestion notify uploaded response: %w", err)
+		return nil, fmt.Errorf("failed to parse ingestion notify uploaded response: %w", err)
 	}
 
 	_, err = h.ImportRunStateRepository.Create(model.ImportRunStatus{
 		ImportRunID: importRunId,
-		Status:      "",
+		Status:      "file added to S3",
+		UpdatedAt:   time.Now().UTC(),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create import run state: %w", err)
+		return nil, fmt.Errorf("failed to create import run state: %w", err)
 	}
 
-	return nil
+	return &importRunId, nil
 }
