@@ -1,34 +1,73 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import FileInput from "./components/ui/file_input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./components/ui/accordion";
+import { ImportRunUpdate } from "./api";
 
 export default function Home() {
+  const [importRunId, setImportRunId] = useState<string | null>(null);
+
   return (
-    <div>
-      <FileUpload />
-      <Steps />
+    <div className="grid gap-20">
+      <FileUpload setImportRunId={setImportRunId} />
+      <Steps importRunId={importRunId} />
     </div>
   )
 }
 
-function Steps() {
+function Steps({ importRunId }: { importRunId: string | null }) {
+  const [updates, setUpdates] = useState<ImportRunUpdate[]>([]);
+
+  const pollIntervalMs = 300;
+  const maxPollingTime = 30000; // 30 seconds
+
+  useEffect(() => {
+    if (!importRunId) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      console.log("polling for updates");
+      fetch(`http://localhost:3010/list-import-run-updates`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          importRunId: importRunId,
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          setUpdates(data.updates);
+        });
+    }, pollIntervalMs);
+
+    setTimeout(() => {
+      clearInterval(interval);
+    }, maxPollingTime);
+
+    return () => clearInterval(interval);
+  }, [importRunId]);
+
   return (
     <>
-      <div className="container mx-auto">
-        <Accordion type="single" collapsible>
-          <AccordionItem value="item-1">
-            <AccordionTrigger>Is it accessible?</AccordionTrigger>
-            <AccordionContent>
-              Yes. It adheres to the WAI-ARIA design pattern.
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div >
+      <div className="container mx-auto max-w-3xl">
+        {updates.map((update, index) => (
+          <Accordion key={index} type="single" collapsible>
+            <AccordionItem value="item-1">
+              <AccordionTrigger>{update.status.charAt(0).toUpperCase() + update.status.slice(1).replace(/\.$/, '')}</AccordionTrigger>
+              <AccordionContent>
+                {update.description ? update.description.charAt(0).toUpperCase() + update.description.slice(1) + (update.description.endsWith('.') ? '' : '.') : ''}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        ))}
+      </div>
     </>
   )
 }
 
-function FileUpload() {
+function FileUpload({ setImportRunId }: { setImportRunId: (importRunId: string) => void }) {
   const [files, setFiles] = useState<File[]>([]);
 
   function postFile(file: File) {
@@ -41,7 +80,7 @@ function FileUpload() {
     })
       .then((response) => response.json())
       .then((data) => {
-        console.log(data);
+        setImportRunId(data.importRunId);
       });
   }
 
