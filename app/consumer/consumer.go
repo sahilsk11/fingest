@@ -52,8 +52,15 @@ func (c *consumerHandler) Close() error {
 }
 
 func (c *consumerHandler) handleEvent(event Event) error {
+	ignoreJob := func([]byte, time.Time) error {
+		return nil
+	}
+
 	handlers := map[string]func([]byte, time.Time) error{
 		"IMPORT_RUN_STATE_UPDATED": c.updateImportRunState,
+
+		// ignore these jobs
+		"FILE_UPLOADED": ignoreJob,
 	}
 	if _, ok := handlers[event.EventType]; !ok {
 		fmt.Printf("No handler found for event type %s\n", event.EventType)
