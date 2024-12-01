@@ -1,7 +1,7 @@
 from datetime import datetime
 import io
 import json
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 import uuid
 import boto3
 from confluent_kafka import Consumer, Message
@@ -22,12 +22,12 @@ def get_file_from_s3(bucket_name: str, file_path: str) -> Tuple[str, str]:
     return content, file_type
 
 
-def get_handler(event_type: str) -> Callable[[dict[str, object]], None]:
+def get_handler(event_type: str) -> Optional[Callable[[dict[str, object]], None]]:
     handlers = {
         "FILE_UPLOADED": file_uploaded,
     }
     if event_type not in handlers:
-        raise ValueError(f"No handler found for event type {event_type}")
+        return None
     return handlers[event_type]
 
 wrapper = sf_import.SnowflakeWrapper(
@@ -87,15 +87,17 @@ if __name__ == "__main__":
         }
     )
     consumer.subscribe(["DEFAULT"])
-    broker = KafkaMessageBroker(host, port).publish(
-        "FILE_UPLOADED",
-        {
-            "s3Bucket": "bucket",
-            "s3FilePath": "path/to/file.csv",
-            "sourceInstitution": "sourceInstitution",
-        },
-        import_run_id=uuid.uuid4(),
-    )
+    # broker = KafkaMessageBroker(host, port).publish(
+    #     "FILE_UPLOADED",
+    #     {
+    #         "s3Bucket": "bucket",
+    #         "s3FilePath": "path/to/file.csv",
+    #         "sourceInstitution": "sourceInstitution",
+    #     },
+    #     import_run_id=uuid.uuid4(),
+    # )
+    snowflake_import_engine.broker = KafkaMessageBroker(host, port)
+    print("consumer started")
     try:
         while True:
             msg = consumer.poll(1.0)
@@ -103,13 +105,18 @@ if __name__ == "__main__":
                 # Initial message consumption may take up to
                 # `session.timeout.ms` for the consumer group to
                 # rebalance and start consuming
-                print("Waiting...")
+                # print("Waiting...")
+                pass
             elif msg.error():
                 print(f"ERROR: {msg.error()}")
             elif msg is not None:
+                print("got a message")
+                # print(msg)
                 event = parse_event(msg)
                 handler = get_handler(event.event_type)
-                handler(event.payload)
+                print(event)
+                if handler is not None:
+                    handler(event.payload)
                 # commit
                 consumer.commit()
     except KeyboardInterrupt:

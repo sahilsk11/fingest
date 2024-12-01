@@ -86,6 +86,7 @@ func (h *ingestionRepositoryBrokerHandler) NotifyFileUploaded(importRunId uuid.U
 		"s3Bucket":          s3Bucket,
 		"s3FilePath":        s3FilePath,
 		"sourceInstitution": sourceInstitution,
+		"importRunId":       importRunId,
 	}
 	err := h.Producer.Publish("FILE_UPLOADED", payload)
 	if err != nil {

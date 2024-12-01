@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -52,7 +53,27 @@ func (c *consumerHandler) Close() error {
 }
 
 func (c *consumerHandler) handleEvent(event Event) error {
-	fmt.Println(event)
+	handlers := map[string]func([]byte) error{
+		"MATCHED_SF_TABLE": func(b []byte) error {
+			payload := map[string]interface{}{}
+			err := json.Unmarshal(b, &payload)
+			if err != nil {
+				return fmt.Errorf("failed to unmarshal payload: %w", err)
+			}
+			fmt.Printf("Matched table %s\n", payload["tableName"])
+			return nil
+		},
+	}
+	if _, ok := handlers[event.EventType]; !ok {
+		fmt.Printf("No handler found for event type %s\n", event.EventType)
+		return nil
+	}
+
+	err := handlers[event.EventType](event.Payload)
+	if err != nil {
+		return fmt.Errorf("failed to handle event: %w", err)
+	}
+
 	return nil
 }
 

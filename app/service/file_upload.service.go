@@ -59,7 +59,12 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 	sourceInstitution := "AMEX"
 
 	importRunId := uuid.New()
-	notifyUploadedResponse, err := h.IngestionRepository.NotifyFileUploaded(uuid.New(), uploadedFile.S3Bucket, uploadedFile.S3FilePath, sourceInstitution)
+	notifyUploadedResponse, err := h.IngestionRepository.NotifyFileUploaded(
+		importRunId,
+		uploadedFile.S3Bucket,
+		uploadedFile.S3FilePath,
+		sourceInstitution,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
 	}
