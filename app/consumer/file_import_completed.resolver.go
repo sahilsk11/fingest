@@ -8,14 +8,14 @@ import (
 	"github.com/google/uuid"
 )
 
-type updateImportRunStatePayload struct {
+type fileImportCompletedRequest struct {
 	ImportRunId string  `json:"importRunId"`
 	Status      string  `json:"status"`
 	Description *string `json:"description"`
 }
 
-func (m consumerHandler) updateImportRunState(payloadBytes []byte, ts time.Time) error {
-	payload := updateImportRunStatePayload{}
+func (m consumerHandler) fileImportCompleted(payloadBytes []byte, ts time.Time) error {
+	payload := fileImportCompletedRequest{}
 	err := json.Unmarshal(payloadBytes, &payload)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal payload: %w", err)

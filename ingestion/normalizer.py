@@ -1,7 +1,7 @@
 import datetime
 import json
 from pprint import pprint
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 import uuid
 import pandas as pd
 import psycopg2  # type: ignore
@@ -11,6 +11,7 @@ import re
 from baml_client.types import AccountType, DataType
 from baml_client import b
 from domain.normalizer import CodeStep
+from broker import MessageBroker
 from sf_import import ImportTableRegistry, NormalizationPipeline, SnowflakeWrapper
 
 
@@ -64,6 +65,7 @@ def get_or_generate_normalization_pipeline(
     sf_conn: SnowflakeWrapper,
     import_table_registry: ImportTableRegistry,
     inserted_data: pd.DataFrame,
+    pub: Callable[[str, str], None],
 ) -> NormalizationPipeline:
     existing_version_id = import_table_registry.get(
         "versioned_normalization_pipeline_id"
@@ -73,7 +75,13 @@ def get_or_generate_normalization_pipeline(
         existing_pipeline = sf_conn.get_normalization_pipeline(existing_version_id)
 
         if existing_pipeline and not existing_pipeline["feedback_or_error"]:
-            print("existing pipeline")
+            pub(
+                "NORMALIZATION_PIPELINE_GENERATED",
+                {
+                    "status": "found existing transformation pipeline",
+                    "description": existing_pipeline["python_code_by_column"],
+                },
+            )
             return existing_pipeline
 
     (account_type, data_type) = (
@@ -104,7 +112,15 @@ def get_or_generate_normalization_pipeline(
         pg_table_name,
         pg_table_attrs,
         inserted_data,
+        pub,
         existing_pipeline,
+    )
+    pub(
+        "NORMALIZATION_PIPELINE_GENERATED",
+        {
+            "status": "generated new transformation pipeline",
+            "description": final_pipeline["python_code_by_column"],
+        },
     )
 
     return final_pipeline
@@ -215,6 +231,7 @@ def generate_df_transformation_code(
     pg_table_name: str,
     pg_table_attrs: dict[str, Any],
     inserted_data: pd.DataFrame,
+    pub: Callable[[str, str], None],
 ) -> Tuple[dict[str, list[CodeStep]], Optional[str]]:
     """
     attempt to generate transformations on all of the columns,
@@ -239,6 +256,7 @@ def generate_normalization_pipeline(
     pg_table_name: str,
     pg_table_attrs: dict,
     inserted_data: pd.DataFrame,
+    pub: Callable[[str, str], None],
     existing_pipeline: Optional[NormalizationPipeline] = None,
 ) -> NormalizationPipeline:
     """
@@ -281,6 +299,7 @@ def generate_normalization_pipeline(
             pg_table_name,
             pg_table_attrs,
             inserted_data,
+            pub,
         )
         # code_by_column = existing_pipeline["python_code_by_column"]
         # this is lazy
@@ -372,7 +391,7 @@ def validate_transformed_data(transformed_data: pd.DataFrame, pg_table_attrs: di
         raise ValueError(f"Extra columns found in transformed_data: {extra_cols}")
 
 
-def normalize_data(sf_conn: SnowflakeWrapper, import_run_id: uuid.UUID) -> pd.DataFrame:
+def normalize_data(sf_conn: SnowflakeWrapper, import_run_id: uuid.UUID, broker: MessageBroker) -> pd.DataFrame:
     import_run = sf_conn.get_import_run(import_run_id)
     if not import_run:
         raise ValueError(f"Import run with id {import_run_id} not found")
@@ -394,25 +413,38 @@ def normalize_data(sf_conn: SnowflakeWrapper, import_run_id: uuid.UUID) -> pd.Da
     attr = sf_conn.get_import_table_attributes(import_run["TABLE_NAME"])
     if not attr:
         raise ValueError(f"No attributes found for table {import_run['TABLE_NAME']}")
+    
+    pub = lambda event, payload: broker.publish(
+        event,
+        payload,
+        import_run_id,
+    )
 
     pipeline = get_or_generate_normalization_pipeline(
         sf_conn,
         attr,
         inserted_data,
+        pub,
     )
     if pipeline["feedback_or_error"]:
         raise ValueError(f"Error in pipeline: {pipeline['feedback_or_error']}")
     
     if not pipeline["python_code_by_column"]:
         raise Exception("deprecated code as str - please regenerate")
+    
+
 
     # i feel like we should validate the pipeline here
     transformed = apply_pipeline_transformation(pipeline["python_code_by_column"], inserted_data)
 
-    sf_conn.add_brokerage_account_transactions(
-        transformed,
-        import_run_id=import_run_id,
-        versioned_normalization_pipeline_id=pipeline["normalization_pipeline_id"],
-    )
+    # TODO - get the table name and insert the data
+    # i think we should also store the target normalization
+    # schema on the import run
+
+    # sf_conn.add_brokerage_account_transactions(
+    #     transformed,
+    #     import_run_id=import_run_id,
+    #     versioned_normalization_pipeline_id=pipeline["normalization_pipeline_id"],
+    # )
 
     return transformed

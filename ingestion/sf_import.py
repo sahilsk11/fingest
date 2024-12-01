@@ -14,7 +14,7 @@ from baml_client.types import AccountType, DataType
 
 from typing import TypedDict, Optional
 
-from broker import IMPORT_RUN_STATE_UPDATED, DummyMessageBroker, MessageBroker
+from broker import IMPORT_RUN_STATUS_UPDATED, DummyMessageBroker, MessageBroker
 
 
 class ImportTableRegistry(TypedDict, total=False):
@@ -433,7 +433,7 @@ class SnowflakeImportEngine:
         )
         if matching_table:
             self.broker.publish(
-                IMPORT_RUN_STATE_UPDATED,
+                IMPORT_RUN_STATUS_UPDATED,
                 {
                     "status": f"found existing Snowflake table called {matching_table} using data schema from file",
                 },
@@ -444,7 +444,7 @@ class SnowflakeImportEngine:
                 csv_as_df, import_table_names, source_institution
             )
             self.broker.publish(
-                IMPORT_RUN_STATE_UPDATED,
+                IMPORT_RUN_STATUS_UPDATED,
                 {
                     "status": f"created new Snowflake table called {matching_table} using data schema from file",
                 },
@@ -481,9 +481,9 @@ class SnowflakeImportEngine:
         csv_as_df.columns = csv_as_df.columns.str.upper()
 
         self.broker.publish(
-            IMPORT_RUN_STATE_UPDATED,
+            IMPORT_RUN_STATUS_UPDATED,
             {"status": "converted uploaded data to Pandas dataframe"},
-            import_run_id
+            import_run_id,
         )
 
         _, _, nrows, _ = write_pandas(
@@ -491,8 +491,10 @@ class SnowflakeImportEngine:
         )
 
         self.broker.publish(
-            IMPORT_RUN_STATE_UPDATED,
-            {"status": f"added {nrows} rows to Snowflake table {matching_table}"},
+            "FILE_IMPORT_COMPLETED",
+            {
+                "status": f"added {nrows} rows to Snowflake table {matching_table}",
+            },
             import_run_id,
         )
 

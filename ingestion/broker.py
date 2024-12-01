@@ -3,7 +3,7 @@ from typing import Optional
 import uuid
 from confluent_kafka import Producer
 
-IMPORT_RUN_STATE_UPDATED = "IMPORT_RUN_STATE_UPDATED"
+IMPORT_RUN_STATUS_UPDATED = "IMPORT_RUN_STATUS_UPDATED"
 
 class MessageBroker:
     def publish(self, topic: str, payload: dict[str, object]) -> None:

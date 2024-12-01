@@ -57,7 +57,8 @@ func (c *consumerHandler) handleEvent(event Event) error {
 	}
 
 	handlers := map[string]func([]byte, time.Time) error{
-		"IMPORT_RUN_STATE_UPDATED": c.updateImportRunState,
+		"IMPORT_RUN_STATUS_UPDATED": c.importRunStatusUpdated,
+		"FILE_IMPORT_COMPLETED":     c.fileImportCompleted,
 
 		// ignore these jobs
 		"FILE_UPLOADED": ignoreJob,
