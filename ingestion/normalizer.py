@@ -438,7 +438,7 @@ class NormalizationService:
                 f"No attributes found for table {import_run['TABLE_NAME']}"
             )
 
-        pub = lambda event, payload: broker.publish(
+        pub = lambda event, payload: self.broker.publish(
             event,
             payload,
             import_run_id,
