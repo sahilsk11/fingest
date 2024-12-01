@@ -1,16 +1,26 @@
 from datetime import datetime
 import io
 import json
-from typing import Callable
+from typing import Callable, Tuple
 import uuid
 import boto3
 from confluent_kafka import Consumer, Message
 import pandas as pd
 from domain.broker import Event
 from broker import KafkaMessageBroker
-from api import get_file_from_s3
 import passwords
 import sf_import
+
+
+s3 = boto3.resource("s3")
+
+def get_file_from_s3(bucket_name: str, file_path: str) -> Tuple[str, str]:
+    obj = s3.Object(bucket_name, file_path)
+    file_type = file_path.split(".")[-1]
+    # NotAuthorized here probably means file not found
+    content = obj.get()["Body"].read().decode("utf-8")
+    return content, file_type
+
 
 def get_handler(event_type: str) -> Callable[[dict[str, object]], None]:
     handlers = {
@@ -19,8 +29,6 @@ def get_handler(event_type: str) -> Callable[[dict[str, object]], None]:
     if event_type not in handlers:
         raise ValueError(f"No handler found for event type {event_type}")
     return handlers[event_type]
-
-s3 = boto3.resource("s3")
 
 wrapper = sf_import.SnowflakeWrapper(
     user=passwords.get_snowflake_user(),
@@ -108,3 +116,4 @@ if __name__ == "__main__":
         pass
     finally:
         consumer.close()
+        print("consumer closed")

@@ -35,6 +35,7 @@ func NewConsumer(host string, port int, appDependencies *cmd.Dependencies) (Cons
 		"bootstrap.servers": service,
 		"group.id":          groupId,
 		// "auto.offset.reset": "smallest",
+		"enable.auto.commit": false,
 	})
 	if err != nil {
 		return nil, err
@@ -93,6 +94,10 @@ func (c *consumerHandler) Start(ctx context.Context) error {
 				err = c.handleEvent(event)
 				if err != nil {
 					return fmt.Errorf("failed to handle event: %w", err)
+				}
+				_, err = c.consumer.Commit()
+				if err != nil {
+					return fmt.Errorf("failed to commit consumer: %w", err)
 				}
 			case kafka.Error:
 				return fmt.Errorf("failed to poll consumer: %w", e)
