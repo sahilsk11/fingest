@@ -8,18 +8,16 @@ from confluent_kafka import Consumer, Message
 import pandas as pd
 from domain.broker import Event
 from broker import KafkaMessageBroker
-from normalizer import normalize_data
+from normalizer import NormalizationService
 import passwords
 import sf_import
 
-
-s3 = boto3.resource("s3")
-
 class ConsumerResolver:
-    def __init__(self, host, port, sf_wrapper, snowflake_import_engine, broker):
+    def __init__(self, host, port, sf_wrapper, snowflake_import_engine, broker, normalization_service: NormalizationService):
         self.wrapper = sf_wrapper
         self.snowflake_import_engine = snowflake_import_engine
         self.broker = broker
+        self.normalization_service = normalization_service
 
         group_id = "default-group-id" #str(uuid.uuid4())
         self.consumer = Consumer(
@@ -30,21 +28,22 @@ class ConsumerResolver:
             }
         )
         self.consumer.subscribe(["DEFAULT"])
+        self.s3 = boto3.resource("s3")
 
     def _get_file_from_s3(self, bucket_name: str, file_path: str) -> Tuple[str, str]:
-        obj = s3.Object(self, bucket_name, file_path)
+        obj = self.s3.Object(bucket_name, file_path)
         file_type = file_path.split(".")[-1]
         # NotAuthorized here probably means file not found
         content = obj.get()["Body"].read().decode("utf-8")
         return content, file_type
 
-    def file_import_completed(self, payload: dict[str, object]) -> None:
+    def file_import_completed_resolver(self, payload: dict[str, object]) -> None:
         import_run_id = payload.get("importRunId")
         if not import_run_id:
             raise Exception("No import run ID found in payload")
-        normalize_data(self.wrapper, import_run_id, self.broker)
+        self.normalization_service.normalize_data(import_run_id)
 
-    def file_uploaded(self, payload: dict[str, object]) -> None:
+    def file_uploaded_handler_resolver(self, payload: dict[str, object]) -> None:
         # Get the data from the request
         data = payload
         s3_bucket = data.get("s3Bucket")
@@ -64,8 +63,8 @@ class ConsumerResolver:
 
     def get_handler(self, event_type: str) -> Optional[Callable[[dict[str, object]], None]]:
         handlers = {
-            "FILE_UPLOADED": self.file_uploaded,
-            "FILE_IMPORT_COMPLETED": self.file_import_completed,
+            "FILE_UPLOADED": self.file_uploaded_handler_resolver,
+            "FILE_IMPORT_COMPLETED": self.file_import_completed_resolver,
         }
         if event_type not in handlers:
             return None
