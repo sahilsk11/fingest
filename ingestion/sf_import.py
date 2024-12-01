@@ -14,7 +14,7 @@ from baml_client.types import AccountType, DataType
 
 from typing import TypedDict, Optional
 
-from broker import MessageBroker
+from broker import IMPORT_RUN_STATE_UPDATED, DummyMessageBroker, MessageBroker
 
 
 class ImportTableRegistry(TypedDict, total=False):
@@ -202,11 +202,14 @@ class SnowflakeWrapper:
         cursor.close()
         if not result:
             return None
-        
+
         python_code_by_column: Optional[dict[str, list[CodeStep]]] = None
         if result[1]:
             try:
-                python_code_by_column = {k: [CodeStep(**step) for step in v] for k, v in json.loads(result[1]).items()}
+                python_code_by_column = {
+                    k: [CodeStep(**step) for step in v]
+                    for k, v in json.loads(result[1]).items()
+                }
             except Exception:
                 pass
 
@@ -260,7 +263,7 @@ class SnowflakeWrapper:
             cursor.execute("ROLLBACK")
             cursor.close()
             raise e
-        
+
     def clean_df_for_insertion(self, df: pd.DataFrame) -> pd.DataFrame:
         # if rows have NaN, replace them with null
         df = df.replace(np.nan, None)
@@ -356,7 +359,9 @@ class SnowflakeWrapper:
             values.append(file_name)
 
         if updates:
-            query = f"UPDATE import_run SET {', '.join(updates)} WHERE import_run_id = %s"
+            query = (
+                f"UPDATE import_run SET {', '.join(updates)} WHERE import_run_id = %s"
+            )
             values.append(str(import_run_id))
             cursor.execute(query, values)
 
@@ -382,7 +387,7 @@ class SnowflakeImportEngine:
             schema=schema,
         )
         self.sf_wrapper = sf_wrapper
-        self.broker = broker
+        self.broker = broker or DummyMessageBroker()
 
     def _csv_format_matches_existing_table(
         self, headers: List[str], existing_import_table_names: List[str]
@@ -405,7 +410,12 @@ class SnowflakeImportEngine:
                 continue
         return None
 
-    def import_csv(self, csv_as_df: pd.DataFrame, source_institution: str, import_run_id: Optional[uuid.UUID] = None) -> uuid.UUID:
+    def import_csv(
+        self,
+        csv_as_df: pd.DataFrame,
+        source_institution: str,
+        import_run_id: Optional[uuid.UUID] = None,
+    ) -> uuid.UUID:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
         headers = [
             re.sub(r"[^a-zA-Z0-9_]", "_", col).upper() for col in csv_as_df.columns
@@ -420,14 +430,26 @@ class SnowflakeImportEngine:
 
         matching_table = self._csv_format_matches_existing_table(
             headers, import_table_names
-        ) 
+        )
         if matching_table:
-            self.broker.publish("MATCHED_SF_TABLE", {"tableName": matching_table, "isNew": False}, import_run_id) if self.broker else None
+            self.broker.publish(
+                IMPORT_RUN_STATE_UPDATED,
+                {
+                    "status": f"found existing Snowflake table called {matching_table} using data schema from file",
+                },
+                import_run_id,
+            )
         else:
             matching_table = self._create_import_table_from_csv(
                 csv_as_df, import_table_names, source_institution
             )
-            self.broker.publish("MATCHED_SF_TABLE", {"tableName": matching_table, "isNew": True}, import_run_id) if self.broker else None
+            self.broker.publish(
+                IMPORT_RUN_STATE_UPDATED,
+                {
+                    "status": f"created new Snowflake table called {matching_table} using data schema from file",
+                },
+                import_run_id,
+            )
 
         table_attributes = self.sf_wrapper.get_import_table_attributes(matching_table)
         if not table_attributes:
@@ -457,13 +479,22 @@ class SnowflakeImportEngine:
         csv_as_df.insert(0, f"{matching_table}_ID", row_ids)
         csv_as_df.insert(1, "IMPORT_RUN_ID", import_run_ids)
         csv_as_df.columns = csv_as_df.columns.str.upper()
-        self.broker.publish("CONVERTED_TO_TABULAR", {"tableName": matching_table, "isNew": True}) if self.broker else None
 
+        self.broker.publish(
+            IMPORT_RUN_STATE_UPDATED,
+            {"status": "converted uploaded data to Pandas dataframe"},
+            import_run_id
+        )
 
         _, _, nrows, _ = write_pandas(
             self.conn, csv_as_df, matching_table, auto_create_table=False
         )
-        print(f"Inserted {nrows} rows into existing table {matching_table}")
+
+        self.broker.publish(
+            IMPORT_RUN_STATE_UPDATED,
+            {"status": f"added {nrows} rows to Snowflake table {matching_table}"},
+            import_run_id,
+        )
 
         return import_run_id
 

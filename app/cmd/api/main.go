@@ -44,8 +44,8 @@ func main() {
 		panic(err)
 	}
 	fileUploadRepository := repository.NewUploadedFileRepository(db)
-	importRunStateRepository := repository.NewImportRunStateRepository(db)
-	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository, ingestionRepository, importRunStateRepository)
+	importRunStatusRepository := repository.NewImportRunStatusRepository(db)
+	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository, ingestionRepository, importRunStatusRepository)
 
 	apiHandler := api.ApiHandler{
 		FileUploadService: fileUploadService,

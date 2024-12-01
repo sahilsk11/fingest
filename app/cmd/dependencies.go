@@ -13,13 +13,14 @@ import (
 
 type Dependencies struct {
 	// repositories
-	FileUploadRepository     repository.UploadedFileRepository
-	S3Repository             repository.S3Repository
-	IngestionRepository      repository.IngestionRepository
-	ImportRunStateRepository repository.ImportRunStateRepository
+	FileUploadRepository      repository.UploadedFileRepository
+	S3Repository              repository.S3Repository
+	IngestionRepository       repository.IngestionRepository
+	ImportRunStatusRepository repository.ImportRunStatusRepository
 
 	// services
 	FileUploadService service.FileUploadService
+	ImportRunService  service.ImportRunService
 
 	// other
 	Producer broker.Producer
@@ -47,6 +48,7 @@ func InitializeDependencies() (*Dependencies, error) {
 		return nil, fmt.Errorf("failed to create message producer: %w", err)
 	}
 
+	// repositories
 	ingestionRepository := repository.NewAsynchronousIngestionRepository(producer)
 
 	s3Repository, err := repository.NewS3Repository(cfg)
@@ -54,15 +56,32 @@ func InitializeDependencies() (*Dependencies, error) {
 		return nil, fmt.Errorf("failed to create s3 repository: %w", err)
 	}
 	fileUploadRepository := repository.NewUploadedFileRepository(db)
-	importRunStateRepository := repository.NewImportRunStateRepository(db)
-	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository, ingestionRepository, importRunStateRepository)
+	importRunStatusRepository := repository.NewImportRunStatusRepository(db)
+	snowflakeRepository, err := repository.NewSnowflakeRepository(repository.SnowflakeCredentials{
+		User:     secrets.Snowflake.User,
+		Password: secrets.Snowflake.Password,
+		Account:  secrets.Snowflake.Account,
+		Schema:   secrets.Snowflake.Schema,
+		Database: secrets.Snowflake.Database,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create snowflake repository: %w", err)
+	}
+
+	// services
+	fileUploadService := service.NewFileUploadService(fileUploadRepository, s3Repository, ingestionRepository, importRunStatusRepository)
+	importRunService := service.NewImportRunService(snowflakeRepository, importRunStatusRepository)
 
 	return &Dependencies{
-		FileUploadRepository:     fileUploadRepository,
-		S3Repository:             s3Repository,
-		IngestionRepository:      ingestionRepository,
-		ImportRunStateRepository: importRunStateRepository,
-		FileUploadService:        fileUploadService,
-		Producer:                 producer,
+		// repositories
+		FileUploadRepository:      fileUploadRepository,
+		S3Repository:              s3Repository,
+		IngestionRepository:       ingestionRepository,
+		ImportRunStatusRepository: importRunStatusRepository,
+		// services
+		ImportRunService:  importRunService,
+		FileUploadService: fileUploadService,
+		// other
+		Producer: producer,
 	}, nil
 }

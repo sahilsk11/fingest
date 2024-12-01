@@ -14,27 +14,27 @@ import (
 	_ "github.com/snowflakedb/gosnowflake" // Snowflake driver
 )
 
-type ImportRunStateRepository interface {
-	Get(importRunId uuid.UUID) (*model.ImportRunState, error)
-	Create(m model.ImportRunState) (*model.ImportRunState, error)
+type ImportRunStatusRepository interface {
+	Get(importRunId uuid.UUID) (*model.ImportRunStatus, error)
+	Create(m model.ImportRunStatus) (*model.ImportRunStatus, error)
 }
 
-type importRunStateRepositoryHandler struct {
+type ImportRunStatusRepositoryHandler struct {
 	db *sql.DB
 }
 
-func NewImportRunStateRepository(db *sql.DB) ImportRunStateRepository {
-	return &importRunStateRepositoryHandler{db: db}
+func NewImportRunStatusRepository(db *sql.DB) ImportRunStatusRepository {
+	return &ImportRunStatusRepositoryHandler{db: db}
 }
 
-func (h *importRunStateRepositoryHandler) Get(importRunId uuid.UUID) (*model.ImportRunState, error) {
-	t := table.ImportRunState
+func (h *ImportRunStatusRepositoryHandler) Get(importRunId uuid.UUID) (*model.ImportRunStatus, error) {
+	t := table.ImportRunStatus
 	query := t.SELECT(t.AllColumns).
 		WHERE(
 			t.ImportRunID.EQ(postgres.UUID(importRunId)),
 		)
 
-	out := model.ImportRunState{}
+	out := model.ImportRunStatus{}
 	err := query.Query(h.db, &out)
 	if err != nil && errors.Is(err, qrm.ErrNoRows) {
 		return nil, nil
@@ -45,12 +45,14 @@ func (h *importRunStateRepositoryHandler) Get(importRunId uuid.UUID) (*model.Imp
 	return &out, nil
 }
 
-func (h *importRunStateRepositoryHandler) Create(m model.ImportRunState) (*model.ImportRunState, error) {
+func (h *ImportRunStatusRepositoryHandler) Create(m model.ImportRunStatus) (*model.ImportRunStatus, error) {
 	m.CreatedAt = time.Now().UTC()
-	m.UpdatedAt = time.Now().UTC()
-	t := table.ImportRunState
+	// this is confusing, but the timestamp here should be the time
+	// the event occurred
+	// m.UpdatedAt = time.Now().UTC()
+	t := table.ImportRunStatus
 	query := t.INSERT(t.MutableColumns).MODEL(m).RETURNING(t.AllColumns)
-	out := model.ImportRunState{}
+	out := model.ImportRunStatus{}
 	err := query.Query(h.db, &out)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create import run state: %w", err)

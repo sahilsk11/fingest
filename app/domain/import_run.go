@@ -36,6 +36,7 @@ const (
 	EMAIL FileSourceFormat = "EMAIL"
 )
 
+// i think we use this for SF?
 type ImportRun struct {
 	ImportRunID       uuid.UUID
 	SourceInstitution string
@@ -48,3 +49,5 @@ type ImportRun struct {
 	FileName          *string
 	CreatedAt         time.Time
 }
+
+// type ImportRunState

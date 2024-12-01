@@ -7,44 +7,16 @@
 
 package model
 
-import "errors"
-
-type ImportRunStatus string
-
-const (
-	ImportRunStatus_Pending   ImportRunStatus = "pending"
-	ImportRunStatus_Running   ImportRunStatus = "running"
-	ImportRunStatus_Completed ImportRunStatus = "completed"
-	ImportRunStatus_Failed    ImportRunStatus = "failed"
+import (
+	"github.com/google/uuid"
+	"time"
 )
 
-func (e *ImportRunStatus) Scan(value interface{}) error {
-	var enumValue string
-	switch val := value.(type) {
-	case string:
-		enumValue = val
-	case []byte:
-		enumValue = string(val)
-	default:
-		return errors.New("jet: Invalid scan value for AllTypesEnum enum. Enum value has to be of type string or []byte")
-	}
-
-	switch enumValue {
-	case "pending":
-		*e = ImportRunStatus_Pending
-	case "running":
-		*e = ImportRunStatus_Running
-	case "completed":
-		*e = ImportRunStatus_Completed
-	case "failed":
-		*e = ImportRunStatus_Failed
-	default:
-		return errors.New("jet: Invalid scan value '" + enumValue + "' for ImportRunStatus enum")
-	}
-
-	return nil
-}
-
-func (e ImportRunStatus) String() string {
-	return string(e)
+type ImportRunStatus struct {
+	ImportRunStatusID uuid.UUID `sql:"primary_key"`
+	ImportRunID       uuid.UUID
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	Status            string
+	Description       *string
 }

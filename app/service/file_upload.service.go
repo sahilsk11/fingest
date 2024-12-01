@@ -19,20 +19,20 @@ type fileUploadServiceHandler struct {
 	UploadedFileRepository   repository.UploadedFileRepository
 	S3Repository             repository.S3Repository
 	IngestionRepository      repository.IngestionRepository
-	ImportRunStateRepository repository.ImportRunStateRepository
+	ImportRunStateRepository repository.ImportRunStatusRepository
 }
 
 func NewFileUploadService(
 	uploadedFileRepository repository.UploadedFileRepository,
 	s3Repository repository.S3Repository,
 	ingestionRepository repository.IngestionRepository,
-	importRunStateRepository repository.ImportRunStateRepository,
+	importRunStatusRepository repository.ImportRunStatusRepository,
 ) FileUploadService {
 	return &fileUploadServiceHandler{
 		UploadedFileRepository:   uploadedFileRepository,
 		S3Repository:             s3Repository,
 		IngestionRepository:      ingestionRepository,
-		ImportRunStateRepository: importRunStateRepository,
+		ImportRunStateRepository: importRunStatusRepository,
 	}
 }
 
@@ -73,9 +73,9 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 		return fmt.Errorf("failed to parse ingestion notify uploaded response: %w", err)
 	}
 
-	_, err = h.ImportRunStateRepository.Create(model.ImportRunState{
+	_, err = h.ImportRunStateRepository.Create(model.ImportRunStatus{
 		ImportRunID: importRunId,
-		Status:      model.ImportRunStatus_Pending,
+		Status:      "",
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create import run state: %w", err)
