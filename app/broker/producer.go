@@ -7,7 +7,7 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
-const topic = "DEFAULT"
+const Topic = "DEFAULT"
 
 type Producer interface {
 	Publish(topic string, payload interface{}) error

@@ -75,7 +75,7 @@ if __name__ == "__main__":
         {
             "bootstrap.servers": f"{host}:{port}",
             "group.id": group_id,
-            "auto.offset.reset": "earliest",
+            # "auto.offset.reset": "earliest",
         }
     )
     consumer.subscribe(["DEFAULT"])
