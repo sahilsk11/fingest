@@ -110,11 +110,9 @@ if __name__ == "__main__":
             elif msg.error():
                 print(f"ERROR: {msg.error()}")
             elif msg is not None:
-                print("got a message")
                 # print(msg)
                 event = parse_event(msg)
                 handler = get_handler(event.event_type)
-                print(event)
                 if handler is not None:
                     handler(event.payload)
                 # commit

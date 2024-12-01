@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sahilsk11/fingest/app/db_models/postgres/public/model"
 	"github.com/sahilsk11/fingest/app/repository"
-	"github.com/sahilsk11/fingest/app/util"
 )
 
 type ImportRunService interface {
@@ -42,13 +41,10 @@ func (h *importRunServiceHandler) ImportFromSnowflake(importRunId uuid.UUID) err
 		return fmt.Errorf("failed to get import run with id %s: %w", importRunId.String(), err)
 	}
 
-	columns, data, err := h.SnowflakeRepository.GetTableData(importRun.TableName)
+	_, _, err = h.SnowflakeRepository.GetTableData(importRun.TableName)
 	if err != nil {
 		return fmt.Errorf("failed to get table data for import run with id %s: %w", importRunId.String(), err)
 	}
-
-	util.Pprint(columns)
-	util.Pprint(data)
 
 	return nil
 }

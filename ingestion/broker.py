@@ -33,4 +33,4 @@ class KafkaMessageBroker(MessageBroker):
             self.topic, json.dumps(payload), headers={"event": event_name}
         )
         self.producer.flush()
-        print(f"Message sent to {self.topic} with payload {payload}")
+        # print(f"Message sent to {self.topic} with payload {payload}")

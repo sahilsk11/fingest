@@ -226,7 +226,6 @@ class SnowflakeWrapper:
         feedback_or_error: Optional[str] = None,
         previous_version_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
-        print(len(python_code))
         cursor = self.conn.cursor()
         cursor.execute("BEGIN")
         try:

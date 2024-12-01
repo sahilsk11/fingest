@@ -58,20 +58,17 @@ func (p *kafkaProducer) Publish(eventType string, payload interface{}) error {
 	if err != nil {
 		return fmt.Errorf("failed to send message to kafka: %w", err)
 	}
+
 	e := <-delivery_chan
 	m := e.(*kafka.Message)
 
 	if m.TopicPartition.Error != nil {
-		fmt.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
-	} else {
-		fmt.Printf("Delivered message to topic %s [%d] at offset %v\n",
-			*m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+		return fmt.Errorf("failed to send message to kafka: %w", m.TopicPartition.Error)
 	}
+
 	close(delivery_chan)
 
-	x := p.producer.Flush(1000)
-	fmt.Println(x)
-	fmt.Println("def pubbed")
+	// x := p.producer.Flush(1000)
 
 	return nil
 }
