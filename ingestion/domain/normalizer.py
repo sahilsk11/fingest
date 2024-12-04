@@ -55,7 +55,7 @@ class TransformerOutputSchema:
 @dataclass
 class NormalizationPipeline:
     normalization_pipeline_id: uuid.UUID
-    python_code_by_column: Optional[dict[str, list[CodeStep]]]
+    python_code_by_column: dict[str, list[CodeStep]]
     feedback_or_error: Optional[str]
     previous_version_id: Optional[uuid.UUID]
     created_at: datetime.datetime

@@ -273,6 +273,9 @@ class NormalizationService:
             raise ValueError(
                 f"Failed to generate pipeline after {remaining_runs} attempts"
             )
+        
+        if code_by_column is None:
+            raise ValueError("Failed to generate pipeline after {remaining_runs} attempts - code_by_column is None")
 
         return NormalizationPipeline(
             normalization_pipeline_id=existing_version_id,
@@ -365,9 +368,6 @@ class NormalizationService:
         )
         if pipeline.feedback_or_error:
             raise ValueError(f"Error in pipeline: {pipeline.feedback_or_error}")
-
-        if not pipeline.python_code_by_column:
-            raise Exception("code by column is empty - please regenerate")
 
         # i feel like we should validate the pipeline here
         transformed = self.apply_pipeline_transformation(
