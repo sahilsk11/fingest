@@ -16,21 +16,12 @@ class CodeByColumn:
     column_name: str
     code_steps: list[CodeStep]
 
-@dataclass
-class NormalizationPipeline:
-    normalization_pipeline_id: uuid.UUID
-    python_code_by_column: Optional[dict[str, list[CodeStep]]]
-    feedback_or_error: Optional[str]
-    previous_version_id: Optional[uuid.UUID]
-    created_at: datetime.datetime
-
 class ColumnDataType(Enum):
     STRING = "STRING"
     NUMBER = "NUMBER"
     DATE = "DATE"
     DATETIME = "DATETIME"
     BOOLEAN = "BOOLEAN"
-
 
 @dataclass
 class TransformerOutputColumn:
@@ -39,13 +30,33 @@ class TransformerOutputColumn:
     description: str
     is_nullable: bool
 
+    def to_json_dict(self):
+        return {
+            "columnName": self.column_name,
+            "dataType": self.data_type.value,
+            "description": self.description,
+            "isNullable": self.is_nullable
+        }
+
 class TransformerOutputSchema:
     def __init__(self, description: str, columns: list[TransformerOutputColumn]):
         self.description = description
-        self.columns = columns
+        self.columns = columns or []
+
+    def to_json_dict(self):
+        return {
+            "description": self.description,
+            "columns": [col.to_json_dict() for col in self.columns]
+        }
 
     def hash(self) -> str:
-        return hashlib.sha256(json.dumps(self.columns).encode("utf-8")).hexdigest()
+        return hashlib.sha256(json.dumps(self.to_json_dict()).encode("utf-8")).hexdigest()
 
-
-
+@dataclass
+class NormalizationPipeline:
+    normalization_pipeline_id: uuid.UUID
+    python_code_by_column: Optional[dict[str, list[CodeStep]]]
+    feedback_or_error: Optional[str]
+    previous_version_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+    output_schema: TransformerOutputSchema

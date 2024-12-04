@@ -1,13 +1,14 @@
 from datetime import datetime
 import io
 import json
+import logging
 from typing import Callable, Optional, Tuple
 import uuid
 import boto3
 from confluent_kafka import Consumer, Message
 import pandas as pd
 from domain.broker import Event
-from broker import KafkaMessageBroker
+from broker import KafkaMessageBroker, MessageBroker
 from domain.normalizer import TransformerOutputSchema
 from normalizer import NormalizationService
 import passwords
@@ -17,11 +18,11 @@ import sf_import
 class ConsumerResolver:
     def __init__(
         self,
-        host,
-        port,
-        sf_wrapper,
-        snowflake_import_engine,
-        broker,
+        host: str,
+        port: int,
+        sf_wrapper: sf_import.SnowflakeWrapper,
+        snowflake_import_engine: sf_import.SnowflakeImportEngine,
+        broker: MessageBroker,
         normalization_service: NormalizationService,
     ):
         self.wrapper = sf_wrapper
@@ -66,7 +67,10 @@ class ConsumerResolver:
         data = payload
         s3_bucket = str(data.get("s3Bucket", ""))
         s3_file_path = str(data.get("s3FilePath", ""))
-        source_institution = data.get("sourceInstitution")
+        source_institution = str(data.get("sourceInstitution", ""))
+        output_schema = payload.get("outputSchema")
+        if not output_schema:
+            raise Exception("No output schema found in payload")
 
         if not s3_bucket or not s3_file_path:
             raise Exception("No s3 bucket or file path found in payload")
@@ -76,12 +80,21 @@ class ConsumerResolver:
         if file_type.lower() != "csv":
             raise Exception(f"Unsupported file type: {file_type}")
 
+        output_schema = TransformerOutputSchema(**output_schema)  # type: ignore
+
         csv_to_df = pd.read_csv(io.StringIO(file_content))
-        import_run_id = payload.get("importRunId")
+        import_run_id_str = str(payload.get("importRunId", ""))
+        if not import_run_id_str:
+            raise Exception("No import run ID found in payload")
+        import_run_id = uuid.UUID(import_run_id_str)
+
         if not import_run_id:
             raise Exception("No import run ID found in payload")
         self.snowflake_import_engine.import_csv(
-            csv_to_df, source_institution, import_run_id=import_run_id
+            csv_to_df,
+            source_institution,
+            import_run_id=import_run_id,
+            output_schema=output_schema,
         )
 
     def get_handler(
@@ -155,6 +168,7 @@ def parse_event(msg: Message) -> Event:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     host = "localhost"
     port = 9092
 

@@ -8,7 +8,7 @@ import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
 from baml_client import b
 import re
-from domain.normalizer import CodeStep, NormalizationPipeline
+from domain.normalizer import CodeStep, NormalizationPipeline, TransformerOutputSchema
 
 from baml_client.types import AccountType, DataType
 
@@ -227,10 +227,12 @@ class SnowflakeWrapper:
         query = "INSERT INTO versioned_normalization_pipeline (versioned_normalization_pipeline_id, created_at, python_code, feedback_or_error, output_schema_hash"
         if previous_version_id:
             query += ", previous_version_id"
-        query += ") VALUES (%s, %s, %s, %s"
+        query += ") VALUES (%s, %s, %s, %s, %s"
         if previous_version_id:
             query += ", %s"
         query += ")"
+
+        print(query)
 
         values_tuple: Tuple = (
             str(id),
@@ -239,6 +241,7 @@ class SnowflakeWrapper:
             feedback_or_error,
             output_schema_hash
         )
+        print(values_tuple)
         if previous_version_id:
             values_tuple += (str(previous_version_id),)  # type: ignore
 
@@ -396,6 +399,7 @@ class SnowflakeImportEngine:
         self,
         csv_as_df: pd.DataFrame,
         source_institution: str,
+        output_schema: TransformerOutputSchema,
         import_run_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
         # Sanitize headers to only contain alphanumeric and underscore characters, and make uppercase
@@ -476,6 +480,7 @@ class SnowflakeImportEngine:
             "FILE_IMPORT_COMPLETED",
             {
                 "status": f"added {nrows} rows to Snowflake table {matching_table}",
+                "outputSchema": output_schema.to_json_dict(),
             },
             import_run_id,
         )

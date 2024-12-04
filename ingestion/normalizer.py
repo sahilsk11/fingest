@@ -1,5 +1,6 @@
 import datetime
 import json
+import logging
 from pprint import pprint
 from typing import Any, Callable, Optional, Tuple
 import uuid
@@ -10,7 +11,12 @@ import re
 
 from baml_client.types import AccountType, DataType
 from baml_client import b
-from domain.normalizer import CodeStep, NormalizationPipeline, TransformerOutputColumn, TransformerOutputSchema
+from domain.normalizer import (
+    CodeStep,
+    NormalizationPipeline,
+    TransformerOutputColumn,
+    TransformerOutputSchema,
+)
 from broker import MessageBroker
 from sf_import import ImportTableRegistry, SnowflakeWrapper
 
@@ -30,25 +36,26 @@ class NormalizationService:
         inserted_data: pd.DataFrame,
         pub: Callable[[str, dict[str, object]], None],
     ) -> NormalizationPipeline:
-        existing_version_id = None
-        # import_table_registry.get(
-        #     "versioned_normalization_pipeline_id"
-        # )
-        existing_pipeline = None
-        if existing_version_id:
-            existing_pipeline = self.sf_conn.get_normalization_pipeline(
-                existing_version_id
-            )
+        """
+        right now this just generates a new pipeline
+        every time
+        """
+       
+        # existing_pipeline = None
+        # if existing_version_id:
+        #     existing_pipeline = self.sf_conn.get_normalization_pipeline(
+        #         existing_version_id
+        #     )
 
-            if existing_pipeline and not existing_pipeline.feedback_or_error:
-                pub(
-                    "NORMALIZATION_PIPELINE_GENERATED",
-                    {
-                        "status": "found existing transformation pipeline",
-                        "description": existing_pipeline.python_code_by_column,
-                    },
-                )
-                return existing_pipeline
+        #     if existing_pipeline and not existing_pipeline.feedback_or_error:
+        #         pub(
+        #             "NORMALIZATION_PIPELINE_GENERATED",
+        #             {
+        #                 "status": "found existing transformation pipeline",
+        #                 "description": existing_pipeline.python_code_by_column,
+        #             },
+        #         )
+        #         return existing_pipeline
 
         # will return the existing pipeline if it exists
         # and is valid
@@ -56,7 +63,7 @@ class NormalizationService:
             output_schema,
             inserted_data,
             pub,
-            existing_pipeline,
+            existing_pipeline=None,
         )
         pub(
             "NORMALIZATION_PIPELINE_GENERATED",
@@ -69,7 +76,7 @@ class NormalizationService:
         return final_pipeline
 
     def validate_transformed_column(
-        self, new_df: pd.DataFrame, column : TransformerOutputColumn
+        self, new_df: pd.DataFrame, column: TransformerOutputColumn
     ):
         return None
 
@@ -176,12 +183,15 @@ class NormalizationService:
         then stitch the data back together
         """
         code_by_column: dict[str, list[CodeStep]] = {}
-
+        logging.info("generating code by column")
         for column in output_schema.columns:
-            code_by_column[column.column_name] = self.generate_column_transformation_code(
-                output_schema.description,
-                column,
-                inserted_data,
+            logging.info(f"generating code for column {column.column_name}")
+            code_by_column[column.column_name] = (
+                self.generate_column_transformation_code(
+                    output_schema.description,
+                    column,
+                    inserted_data,
+                )
             )
 
         return code_by_column, None
@@ -206,17 +216,20 @@ class NormalizationService:
 
         # if the existing pipeline exists and is valid, return it
         # otherwise, save elements from the existing pipeline
-        if existing_pipeline:
-            # TODO - fix this
-            code = str(existing_pipeline.python_code_by_column)
-            error = existing_pipeline.feedback_or_error
-            existing_version_id = existing_pipeline.previous_version_id
-            if not error:
-                return existing_pipeline
+        # if existing_pipeline:
+        #     # TODO - fix this
+        #     code = str(existing_pipeline.python_code_by_column)
+        #     error = existing_pipeline.feedback_or_error
+        #     existing_version_id = existing_pipeline.previous_version_id
+        #     if not error:
+        #         return existing_pipeline
 
+        logging.info("whatever this is")
+        print(code, error)
         remaining_runs = 1
         code_by_column = None
         while (not code or error) and remaining_runs > 0:
+            logging.info("generating code")
             error = None
             # right now we're ignoring the error
             # because it doesn't return one
@@ -267,6 +280,7 @@ class NormalizationService:
             feedback_or_error=error,
             previous_version_id=existing_version_id,
             created_at=datetime.datetime.now(),
+            output_schema=output_schema,
         )
 
     def apply_pipeline_transformation(
@@ -312,7 +326,9 @@ class NormalizationService:
         return None
 
     def normalize_data(
-        self, import_run_id: uuid.UUID, output_schema: TransformerOutputSchema
+        self,
+        import_run_id: uuid.UUID,
+        output_schema: TransformerOutputSchema,
     ) -> pd.DataFrame:
         import_run = self.sf_conn.get_import_run(import_run_id)
         if not import_run:
@@ -351,7 +367,7 @@ class NormalizationService:
             raise ValueError(f"Error in pipeline: {pipeline.feedback_or_error}")
 
         if not pipeline.python_code_by_column:
-            raise Exception("deprecated code as str - please regenerate")
+            raise Exception("code by column is empty - please regenerate")
 
         # i feel like we should validate the pipeline here
         transformed = self.apply_pipeline_transformation(

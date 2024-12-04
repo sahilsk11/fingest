@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sahilsk11/fingest/app/db_models/postgres/public/model"
+	"github.com/sahilsk11/fingest/app/domain"
 	"github.com/sahilsk11/fingest/app/repository"
 )
 
@@ -65,6 +66,7 @@ func (h *fileUploadServiceHandler) UploadFile(filename string, fileBytes []byte,
 		uploadedFile.S3Bucket,
 		uploadedFile.S3FilePath,
 		sourceInstitution,
+		domain.TransformerOutputSchema{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to notify ingestion service of uploaded file: %w", err)
