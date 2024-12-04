@@ -6,6 +6,7 @@ enum ColumnType {
     NUMERIC
     TEXT
     DATE
+    BOOLEAN
 }
 
 class PlanTransformationResult {
@@ -18,9 +19,11 @@ class PlanTransformationResult {
 }
 
 function PlanTransformation(
-    pg_table_name: string,
-    pg_table_column: string,
-    pg_table_column_attributes_json: string,
+    output_schema_description: string,
+    column_name: string,
+    column_data_type: string,
+    column_description: string,
+    is_nullable: bool,
     sample_data_json: string,
     df_headers: string[]
 ) -> PlanTransformationResult {
@@ -87,9 +90,11 @@ class TransformationStep {
 }
 
 function GenerateTransformation(
-    pg_table_name: string,
-    pg_table_column: string,
-    pg_table_column_attributes_json: string,
+    output_schema_description: string,
+    column_name: string,
+    column_data_type: string,
+    column_description: string,
+    is_nullable: bool,
     sample_data_json: string,
     planned_steps: string[],
     df_headers: string[]

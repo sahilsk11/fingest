@@ -8,7 +8,7 @@ import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
 from baml_client import b
 import re
-from domain.normalizer import CodeStep
+from domain.normalizer import CodeStep, NormalizationPipeline
 
 from baml_client.types import AccountType, DataType
 
@@ -27,13 +27,7 @@ class ImportTableRegistry(TypedDict, total=False):
     versioned_normalization_pipeline_id: Optional[uuid.UUID]
 
 
-class NormalizationPipeline(TypedDict):
-    normalization_pipeline_id: uuid.UUID
-    python_code: str  # deprecated
-    python_code_by_column: Optional[dict[str, list[CodeStep]]]
-    feedback_or_error: Optional[str]
-    previous_version_id: Optional[uuid.UUID]
-    created_at: datetime.datetime
+
 
 
 class SnowflakeWrapper:
@@ -213,56 +207,44 @@ class SnowflakeWrapper:
             except Exception:
                 pass
 
-        return {
-            "normalization_pipeline_id": uuid.UUID(result[0]),
-            "python_code": result[1],
-            "feedback_or_error": result[2],
-            "previous_version_id": uuid.UUID(result[3]) if result[3] else None,
-            "created_at": result[4],
-            "python_code_by_column": python_code_by_column,
-        }
+        return NormalizationPipeline(
+            normalization_pipeline_id=uuid.UUID(result[0]),
+            python_code_by_column=python_code_by_column,
+            feedback_or_error=result[2],
+            previous_version_id=uuid.UUID(result[3]) if result[3] else None,
+            created_at=result[4],
+        )
 
     def save_pipeline(
         self,
-        import_table_registry_id: uuid.UUID,
+        output_schema_hash: str,
         python_code: str,
         feedback_or_error: Optional[str] = None,
         previous_version_id: Optional[uuid.UUID] = None,
     ) -> uuid.UUID:
         cursor = self.conn.cursor()
-        cursor.execute("BEGIN")
-        try:
-            id = uuid.uuid4()
-            query = "INSERT INTO versioned_normalization_pipeline (versioned_normalization_pipeline_id, created_at, python_code, feedback_or_error"
-            if previous_version_id:
-                query += ", previous_version_id"
-            query += ") VALUES (%s, %s, %s, %s"
-            if previous_version_id:
-                query += ", %s"
-            query += ")"
+        id = uuid.uuid4()
+        query = "INSERT INTO versioned_normalization_pipeline (versioned_normalization_pipeline_id, created_at, python_code, feedback_or_error, output_schema_hash"
+        if previous_version_id:
+            query += ", previous_version_id"
+        query += ") VALUES (%s, %s, %s, %s"
+        if previous_version_id:
+            query += ", %s"
+        query += ")"
 
-            values_tuple: Tuple = (
-                str(id),
-                str(datetime.datetime.now()),
-                python_code,
-                feedback_or_error,
-            )
-            if previous_version_id:
-                values_tuple += (str(previous_version_id),)  # type: ignore
+        values_tuple: Tuple = (
+            str(id),
+            str(datetime.datetime.now()),
+            python_code,
+            feedback_or_error,
+            output_schema_hash
+        )
+        if previous_version_id:
+            values_tuple += (str(previous_version_id),)  # type: ignore
 
-            cursor.execute(query, values_tuple)
-
-            cursor.execute(
-                f"UPDATE import_table_registry SET versioned_normalization_pipeline_id = %s WHERE import_table_registry_id = %s",
-                (str(id), str(import_table_registry_id)),
-            )
-            cursor.execute("COMMIT")
-            cursor.close()
-            return id
-        except Exception as e:
-            cursor.execute("ROLLBACK")
-            cursor.close()
-            raise e
+        cursor.execute(query, values_tuple)
+        cursor.close()
+        return id
 
     def clean_df_for_insertion(self, df: pd.DataFrame) -> pd.DataFrame:
         # if rows have NaN, replace them with null

@@ -1,4 +1,10 @@
 from dataclasses import dataclass
+import datetime
+import hashlib
+import json
+from typing import Optional
+import uuid
+from enum import Enum
 
 @dataclass
 class CodeStep:
@@ -9,3 +15,37 @@ class CodeStep:
 class CodeByColumn:
     column_name: str
     code_steps: list[CodeStep]
+
+@dataclass
+class NormalizationPipeline:
+    normalization_pipeline_id: uuid.UUID
+    python_code_by_column: Optional[dict[str, list[CodeStep]]]
+    feedback_or_error: Optional[str]
+    previous_version_id: Optional[uuid.UUID]
+    created_at: datetime.datetime
+
+class ColumnDataType(Enum):
+    STRING = "STRING"
+    NUMBER = "NUMBER"
+    DATE = "DATE"
+    DATETIME = "DATETIME"
+    BOOLEAN = "BOOLEAN"
+
+
+@dataclass
+class TransformerOutputColumn:
+    column_name: str
+    data_type: ColumnDataType
+    description: str
+    is_nullable: bool
+
+class TransformerOutputSchema:
+    def __init__(self, description: str, columns: list[TransformerOutputColumn]):
+        self.description = description
+        self.columns = columns
+
+    def hash(self) -> str:
+        return hashlib.sha256(json.dumps(self.columns).encode("utf-8")).hexdigest()
+
+
+

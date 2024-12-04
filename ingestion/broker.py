@@ -6,11 +6,11 @@ from confluent_kafka import Producer
 IMPORT_RUN_STATUS_UPDATED = "IMPORT_RUN_STATUS_UPDATED"
 
 class MessageBroker:
-    def publish(self, topic: str, payload: dict[str, object]) -> None:
+    def publish(self, topic: str, payload: dict[str, object], import_run_id: Optional[uuid.UUID] = None,) -> None:
         raise NotImplementedError("Subclasses must implement this method.")
 
 class DummyMessageBroker(MessageBroker):
-    def publish(self, topic: str, payload: dict[str, object]) -> None:
+    def publish(self, topic: str, payload: dict[str, object], import_run_id: Optional[uuid.UUID] = None,) -> None:
         print(f"DummyMessageBroker: publishing to {topic} with payload {payload}")
 
 class KafkaMessageBroker(MessageBroker):

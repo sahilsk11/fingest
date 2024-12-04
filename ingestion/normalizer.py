@@ -10,119 +10,50 @@ import re
 
 from baml_client.types import AccountType, DataType
 from baml_client import b
-from domain.normalizer import CodeStep
+from domain.normalizer import CodeStep, NormalizationPipeline, TransformerOutputColumn, TransformerOutputSchema
 from broker import MessageBroker
-from sf_import import ImportTableRegistry, NormalizationPipeline, SnowflakeWrapper
+from sf_import import ImportTableRegistry, SnowflakeWrapper
 
 
 class NormalizationService:
     def __init__(
         self,
-        pg_conn: psycopg2.extensions.connection,
         sf_conn: SnowflakeWrapper,
         broker: MessageBroker,
     ):
-        self.pg_conn = pg_conn
         self.sf_conn = sf_conn
         self.broker = broker
 
-    def get_pg_table_name(
-        self, account_type: AccountType, data_type: DataType
-    ) -> Optional[str]:
-        return {
-            ("bank", "transaction"): "bank_account_transaction",
-            ("brokerage", "transaction"): "brokerage_account_transaction",
-        }.get((account_type.value.lower(), data_type.value.lower()), None)
-
-    def describe_pg_table(
-        self, pg_table: str, pg_conn: psycopg2.extensions.connection
-    ) -> dict[str, dict]:
-        cursor = pg_conn.cursor()
-        cursor.execute(
-            f"""
-                SELECT 
-                    LOWER(c.column_name) AS column_name,
-                    c.data_type,
-                    CASE 
-                        WHEN c.data_type = 'USER-DEFINED' THEN 
-                            string_agg(UPPER(e.enumlabel), ', ') 
-                        ELSE '' 
-                    END AS enum_values
-                FROM 
-                    information_schema.columns c
-                LEFT JOIN 
-                    pg_type t ON c.udt_name = t.typname
-                LEFT JOIN 
-                    pg_enum e ON t.oid = e.enumtypid
-                WHERE 
-                    c.table_name = '{pg_table}'
-                GROUP BY 
-                    c.column_name, c.data_type;
-                """
-        )
-
-        result = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-        result_with_headers = [dict(zip(columns, row)) for row in result]
-        out = {}
-        for col_data in result_with_headers:
-            r = {"data_type": col_data["data_type"]}
-            if col_data["enum_values"]:
-                r["enum_values"] = col_data["enum_values"].split(", ")
-            out[col_data["column_name"]] = r
-        return out
-
     def get_or_generate_normalization_pipeline(
         self,
-        import_table_registry: ImportTableRegistry,
+        output_schema: TransformerOutputSchema,
         inserted_data: pd.DataFrame,
-        pub: Callable[[str, str], None],
+        pub: Callable[[str, dict[str, object]], None],
     ) -> NormalizationPipeline:
-        existing_version_id = import_table_registry.get(
-            "versioned_normalization_pipeline_id"
-        )
+        existing_version_id = None
+        # import_table_registry.get(
+        #     "versioned_normalization_pipeline_id"
+        # )
         existing_pipeline = None
         if existing_version_id:
             existing_pipeline = self.sf_conn.get_normalization_pipeline(
                 existing_version_id
             )
 
-            if existing_pipeline and not existing_pipeline["feedback_or_error"]:
+            if existing_pipeline and not existing_pipeline.feedback_or_error:
                 pub(
                     "NORMALIZATION_PIPELINE_GENERATED",
                     {
                         "status": "found existing transformation pipeline",
-                        "description": existing_pipeline["python_code_by_column"],
+                        "description": existing_pipeline.python_code_by_column,
                     },
                 )
                 return existing_pipeline
 
-        (account_type, data_type) = (
-            import_table_registry["account_type"],
-            import_table_registry["data_type"],
-        )
-
-        pg_table_name = self.get_pg_table_name(account_type, data_type)
-        if not pg_table_name:
-            raise ValueError(
-                f"No matching table found for account type {account_type.value} and data type {data_type.value}"
-            )
-
-        pg_conn = psycopg2.connect(
-            host="localhost",
-            database="postgres",
-            user="postgres",
-            password="postgres",
-            port="5441",
-        )
-        pg_table_attrs = self.describe_pg_table(pg_table_name, pg_conn=pg_conn)
-
         # will return the existing pipeline if it exists
         # and is valid
         final_pipeline = self.generate_normalization_pipeline(
-            import_table_registry["import_table_registry_id"],
-            pg_table_name,
-            pg_table_attrs,
+            output_schema,
             inserted_data,
             pub,
             existing_pipeline,
@@ -131,33 +62,24 @@ class NormalizationService:
             "NORMALIZATION_PIPELINE_GENERATED",
             {
                 "status": "generated new transformation pipeline",
-                "description": final_pipeline["python_code_by_column"],
+                "description": final_pipeline.python_code_by_column,
             },
         )
 
         return final_pipeline
 
     def validate_transformed_column(
-        self, new_df: pd.DataFrame, pg_table_attrs: dict, column: str
+        self, new_df: pd.DataFrame, column : TransformerOutputColumn
     ):
-        if column not in pg_table_attrs:
-            raise ValueError(f"Column {column} not found in pg_table_attrs")
-
-        if pd.api.types.is_datetime64_any_dtype(new_df[column]):
-            if new_df[column].isna().any():
-                raise ValueError(
-                    f"Column {column} contains NaT values - should be valid datetimes"
-                )
+        return None
 
     def generate_column_transformation_code(
         self,
-        pg_table_name: str,
-        column: str,
-        pg_table_attrs: dict,
+        output_schema_description: str,
+        column: TransformerOutputColumn,
         inserted_data: pd.DataFrame,
     ) -> list[CodeStep]:
         inserted_data_json = inserted_data.to_json()
-        attrs = pg_table_attrs[column]
 
         # todo - we should do some of our own preprocessing
         # to fix null or empty columns from inserted data.
@@ -166,9 +88,11 @@ class NormalizationService:
         # todo - we could attempt debugging here
         # if we made these iterative
         transformation_plan = b.PlanTransformation(
-            pg_table_name,
-            pg_table_column=column,
-            pg_table_column_attributes_json=json.dumps(attrs),
+            output_schema_description,
+            column.column_name,
+            column.data_type.value,
+            column.description,
+            column.is_nullable,
             sample_data_json=inserted_data_json,
             df_headers=inserted_data.columns.to_list(),
         )
@@ -178,9 +102,11 @@ class NormalizationService:
 
         relevant_data = inserted_data[relevant_columns]
         transformation_steps = b.GenerateTransformation(
-            pg_table_name,
-            pg_table_column=column,
-            pg_table_column_attributes_json=json.dumps(attrs),
+            output_schema_description,
+            column.column_name,
+            column.data_type.value,
+            column.description,
+            column.is_nullable,
             sample_data_json=relevant_data.to_json(),
             planned_steps=planned_steps,
             df_headers=relevant_columns,
@@ -212,7 +138,7 @@ class NormalizationService:
                     exec(transformation_code, global_scope, local_scope)
                     new_df = local_scope.get("new_df")  # type:ignore
                     works = True
-                    self.validate_transformed_column(new_df, pg_table_attrs, column)
+                    self.validate_transformed_column(new_df, column)
                 except Exception as e:
                     if tries == 0:
                         raise ValueError(
@@ -226,7 +152,7 @@ class NormalizationService:
                         code=transformation_code,
                         error=repr(e),
                     ).corrected_code
-                    # TODO - log the explanation
+
                 out.append(CodeStep(transformation_code, transformation_instruction))
 
         # at this point, new_df should have a single column, and
@@ -241,10 +167,9 @@ class NormalizationService:
 
     def generate_df_transformation_code(
         self,
-        pg_table_name: str,
-        pg_table_attrs: dict[str, Any],
+        output_schema: TransformerOutputSchema,
         inserted_data: pd.DataFrame,
-        pub: Callable[[str, str], None],
+        pub: Callable[[str, dict[str, object]], None],
     ) -> Tuple[dict[str, list[CodeStep]], Optional[str]]:
         """
         attempt to generate transformations on all of the columns,
@@ -252,11 +177,10 @@ class NormalizationService:
         """
         code_by_column: dict[str, list[CodeStep]] = {}
 
-        for column in pg_table_attrs.keys():
-            code_by_column[column] = self.generate_column_transformation_code(
-                pg_table_name,
+        for column in output_schema.columns:
+            code_by_column[column.column_name] = self.generate_column_transformation_code(
+                output_schema.description,
                 column,
-                pg_table_attrs,
                 inserted_data,
             )
 
@@ -264,11 +188,9 @@ class NormalizationService:
 
     def generate_normalization_pipeline(
         self,
-        import_table_registry_id: uuid.UUID,
-        pg_table_name: str,
-        pg_table_attrs: dict,
+        output_schema: TransformerOutputSchema,
         inserted_data: pd.DataFrame,
-        pub: Callable[[str, str], None],
+        pub: Callable[[str, dict[str, object]], None],
         existing_pipeline: Optional[NormalizationPipeline] = None,
     ) -> NormalizationPipeline:
         """
@@ -278,16 +200,6 @@ class NormalizationService:
         if we want to start from scratch
         """
 
-        # todo - remove the primary key from inserted_data
-
-        # remove primary key from pg_table_attrs
-        del pg_table_attrs[pg_table_name.lower() + "_id"]
-        del pg_table_attrs["import_run_id"]
-        if "created_at" in pg_table_attrs:
-            del pg_table_attrs["created_at"]
-        if "updated_at" in pg_table_attrs:
-            del pg_table_attrs["updated_at"]
-
         code = None
         error = None
         existing_version_id = None
@@ -295,9 +207,10 @@ class NormalizationService:
         # if the existing pipeline exists and is valid, return it
         # otherwise, save elements from the existing pipeline
         if existing_pipeline:
-            code = existing_pipeline["python_code"]
-            error = existing_pipeline["feedback_or_error"]
-            existing_version_id = existing_pipeline["previous_version_id"]
+            # TODO - fix this
+            code = str(existing_pipeline.python_code_by_column)
+            error = existing_pipeline.feedback_or_error
+            existing_version_id = existing_pipeline.previous_version_id
             if not error:
                 return existing_pipeline
 
@@ -308,8 +221,7 @@ class NormalizationService:
             # right now we're ignoring the error
             # because it doesn't return one
             code_by_column, _ = self.generate_df_transformation_code(
-                pg_table_name,
-                pg_table_attrs,
+                output_schema,
                 inserted_data,
                 pub,
             )
@@ -326,13 +238,14 @@ class NormalizationService:
                 transformed_data = self.apply_pipeline_transformation(
                     code_by_column, inserted_data
                 )
-                self.validate_transformed_data(transformed_data, pg_table_attrs)
+                self.validate_transformed_data(transformed_data, output_schema)
             except Exception as e:
                 print(e)
                 error = "failed to apply or validate pipeline: " + repr(e)
 
+            # TODO - how should we store the pipeline?
             new_version_id = self.sf_conn.save_pipeline(
-                import_table_registry_id,
+                output_schema.hash(),
                 code,
                 error,
                 previous_version_id=existing_version_id,
@@ -348,14 +261,13 @@ class NormalizationService:
                 f"Failed to generate pipeline after {remaining_runs} attempts"
             )
 
-        return {
-            "normalization_pipeline_id": existing_version_id,
-            "python_code": code,
-            "feedback_or_error": error,
-            "previous_version_id": existing_version_id,
-            "created_at": datetime.datetime.now(),
-            "python_code_by_column": code_by_column,
-        }
+        return NormalizationPipeline(
+            normalization_pipeline_id=existing_version_id,
+            python_code_by_column=code_by_column,
+            feedback_or_error=error,
+            previous_version_id=existing_version_id,
+            created_at=datetime.datetime.now(),
+        )
 
     def apply_pipeline_transformation(
         self, code_by_column: dict[str, list[CodeStep]], inserted_data: pd.DataFrame
@@ -395,20 +307,12 @@ class NormalizationService:
         return output_df
 
     def validate_transformed_data(
-        self, transformed_data: pd.DataFrame, pg_table_attrs: dict
+        self, transformed_data: pd.DataFrame, output_schema: TransformerOutputSchema
     ):
-        # ensure that all columns are present in the output
-        for col in pg_table_attrs:
-            if col not in transformed_data.columns:
-                raise ValueError(f"Column {col} not found in transformed_data")
-
-        # check for extra columns
-        extra_cols = set(transformed_data.columns) - set(pg_table_attrs.keys())
-        if extra_cols:
-            raise ValueError(f"Extra columns found in transformed_data: {extra_cols}")
+        return None
 
     def normalize_data(
-        self, import_run_id: uuid.UUID
+        self, import_run_id: uuid.UUID, output_schema: TransformerOutputSchema
     ) -> pd.DataFrame:
         import_run = self.sf_conn.get_import_run(import_run_id)
         if not import_run:
@@ -432,12 +336,6 @@ class NormalizationService:
         # adds noise; we don't need
         inserted_data = inserted_data.drop(columns=["IMPORT_RUN_ID"])
 
-        attr = self.sf_conn.get_import_table_attributes(import_run["TABLE_NAME"])
-        if not attr:
-            raise ValueError(
-                f"No attributes found for table {import_run['TABLE_NAME']}"
-            )
-
         pub = lambda event, payload: self.broker.publish(
             event,
             payload,
@@ -445,19 +343,19 @@ class NormalizationService:
         )
 
         pipeline = self.get_or_generate_normalization_pipeline(
-            attr,
+            output_schema,
             inserted_data,
             pub,
         )
-        if pipeline["feedback_or_error"]:
-            raise ValueError(f"Error in pipeline: {pipeline['feedback_or_error']}")
+        if pipeline.feedback_or_error:
+            raise ValueError(f"Error in pipeline: {pipeline.feedback_or_error}")
 
-        if not pipeline["python_code_by_column"]:
+        if not pipeline.python_code_by_column:
             raise Exception("deprecated code as str - please regenerate")
 
         # i feel like we should validate the pipeline here
         transformed = self.apply_pipeline_transformation(
-            pipeline["python_code_by_column"], inserted_data
+            pipeline.python_code_by_column, inserted_data
         )
 
         # TODO - get the table name and insert the data

@@ -36,8 +36,11 @@ create table import_table_registry (
   -- transaction, position, open_lot, balances
   file_source_format VARCHAR(10),
   -- csv, json, pdf, email
+  column versioned_normalization_pipeline_id VARCHAR(36),
   primary key (import_table_registry_id)
 );
+
+alter table import_run drop column versioned_normalization_pipeline_id;
 
 create table versioned_normalization_pipeline (
   versioned_normalization_pipeline_id VARCHAR(36) not null,
@@ -47,6 +50,9 @@ create table versioned_normalization_pipeline (
   created_at timestamp not null,
   primary key (versioned_normalization_pipeline_id)
 );
+
+alter table versioned_normalization_pipeline
+add column output_schema_hash varchar(100);
 
 alter table
   import_table_registry

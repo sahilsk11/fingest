@@ -8,12 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sahilsk11/fingest/app/broker"
+	"github.com/sahilsk11/fingest/app/domain"
 )
 
 // we can move this to Kafka but for now, just use REST services to communicate with python backend
 
 type IngestionRepository interface {
-	NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error)
+	NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string, outputFormat domain.TransformerOutputSchema) (*NotifyFileUploadedResponse, error)
 }
 
 type ingestionRepositoryRestHandler struct {
@@ -48,7 +49,7 @@ type NotifyFileUploadedResponse struct {
 	ImportRunID uuid.UUID `json:"importRunId"`
 }
 
-func (h *ingestionRepositoryRestHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error) {
+func (h *ingestionRepositoryRestHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string, outputFormat domain.TransformerOutputSchema) (*NotifyFileUploadedResponse, error) {
 	// todo - add error handling/return value
 	body := notifyFileUploadedRequest{
 		S3Bucket:          s3Bucket,
@@ -80,13 +81,14 @@ func (h *ingestionRepositoryRestHandler) NotifyFileUploaded(importRunId uuid.UUI
 	return &response, nil
 }
 
-func (h *ingestionRepositoryBrokerHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string) (*NotifyFileUploadedResponse, error) {
+func (h *ingestionRepositoryBrokerHandler) NotifyFileUploaded(importRunId uuid.UUID, s3Bucket string, s3FilePath string, sourceInstitution string, outputFormat domain.TransformerOutputSchema) (*NotifyFileUploadedResponse, error) {
 	// todo - add error handling/return value
 	payload := map[string]interface{}{
 		"s3Bucket":          s3Bucket,
 		"s3FilePath":        s3FilePath,
 		"sourceInstitution": sourceInstitution,
 		"importRunId":       importRunId,
+		"outputSchema":      outputFormat,
 	}
 	err := h.Producer.Publish("FILE_UPLOADED", payload)
 	if err != nil {
